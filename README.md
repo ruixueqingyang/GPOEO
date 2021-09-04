@@ -1,4 +1,5 @@
 # GPOEO
 a micro-intrusive GPU online energy optimization (GPOEO) framework for iterative applications
 
-// The source code will be uploaded soon
+// Source code was uploaded.
+// We are writing this README.
