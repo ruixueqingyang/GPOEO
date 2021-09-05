@@ -2,18 +2,25 @@
 import math
 import numpy as np                # 导入模块 numpy，并简写成 np
 import matplotlib.pyplot as plt   # 导入模块 matplotlib.pyplot，并简写成 plt 
+import pandas as pd
 import os
 import threading
 import pickle
 import time
+import datetime
 import multiprocessing
 from multiprocessing import Process, Lock, Manager, Value
 import sys
 from collections import deque
 from itertools import chain
+import threading
+
+
+
 
 # lsc writes here~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-FLAG = True # set False if want to measure overhead
+isMeasureOverhead = True # set False if want to measure overhead
+
 
 import sys
 import os
@@ -32,19 +39,9 @@ from SpectrumAnalysis import T_SpectrumAnalysis
 QueueGlobal = multiprocessing.Queue()
 QueueGlobalWatch = multiprocessing.Queue()
 
-MyManager = multiprocessing.Manager()
-SMUtilTolerateFlag = MyManager.Value(bool, True)
-SMUtil0_TolerateDuration = MyManager.Value(float, 7.0)
-SMUsedDuraiton = MyManager.Value(float, -1.0)
-SMUnusedDuraiton = MyManager.Value(float, -1.0)
-SearchedOptGear = MyManager.Value(int, -1)
-PredictedOptGear = MyManager.Value(int, -1)
-CurrentGear = MyManager.Value(int, -1)
-
 # wfr 20210826 start a thread for this func to handle SMUtil == 0
-def WatchSMUsed0():
+def WatchSMUsed0(SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear):
     global QueueGlobalWatch
-    global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
     print("WatchSMUsed0: Process: Begin")
     sys.stdout.flush()
@@ -86,7 +83,7 @@ def WatchSMUsed0():
                     SMUtilTolerateFlag.value = False
                     print("WatchSMUsed0: SMUtilTolerateFlag = {}".format(SMUtilTolerateFlag.value))
                     CurrentGear.value = int(0)
-                    if FLAG:
+                    if isMeasureOverhead == False:
                         EPOptDrv.SetEnergyGear(CurrentGear.value)
                     print("WatchSMUsed0: Set CurrentGear = {:d}".format(CurrentGear.value))
             else:
@@ -106,12 +103,12 @@ def WatchSMUsed0():
                     print("WatchSMUsed0: SMUtilTolerateFlag = {}".format(SMUtilTolerateFlag.value))
                     if SearchedOptGear.value > 0:
                         CurrentGear.value = SearchedOptGear.value
-                        if FLAG:
+                        if isMeasureOverhead == False:
                             EPOptDrv.SetEnergyGear(CurrentGear.value)
                         print("WatchSMUsed0: Reset CurrentGear = {:d}".format(CurrentGear.value))
                     elif PredictedOptGear.value > 0:
                         CurrentGear.value = PredictedOptGear.value
-                        if FLAG:
+                        if isMeasureOverhead == False:
                             EPOptDrv.SetEnergyGear(CurrentGear.value)
                         print("WatchSMUsed0: Reset CurrentGear = {:d}".format(CurrentGear.value))
                     else:
@@ -172,10 +169,23 @@ class EP_OPT(multiprocessing.Process):
     IPSIncFactor = 1.02
     EngDecFactor = 0.95
     MeasureDurationInit = 40
+    LocalSearchState = "RESTART" # "RESTART" / "CONTINUE"
 
     def __init__(self):
+        pid = os.getpid()
+        # p = psutil.Process(pid)
+        print('Process id : %d' % pid)
+        t = threading.currentThread()
+        #线程ID
+        print('Thread id : %d' % t.ident)
         multiprocessing.Process.__init__(self)
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
+
+        pid = os.getpid()
+        # p = psutil.Process(pid)
+        print('Process id : %d' % pid)
+        t = threading.currentThread()
+        #线程ID
+        print('Thread id : %d' % t.ident)
 
         self.isMeasureOverHead = False # wfr 20210504 measure cupti overhead
 
@@ -264,35 +274,32 @@ class EP_OPT(multiprocessing.Process):
         return self.TPrev, self.TNextPreference
 
     def IsSMUnusedPeriodly(self):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
-        if self.SMUnusedCount>=3 and SMUnusedDuraiton.value / SMUsedDuraiton.value > self.SMUnusedRatioThreshold:
+        if self.SMUnusedCount>=3 and self.SMUnusedDuraiton.value / self.SMUsedDuraiton.value > self.SMUnusedRatioThreshold:
             return True
         else:
             return False
 
     # wfr 20210825 is SMUtil == 0 stably or not
     def TestSMUtil(self):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
-        return SMUtilTolerateFlag.value
-
+        return self.SMUtilTolerateFlag.value
+        
     # wfr 20210824 when SMUtil == 0%, enter this func, until SMUtil > 0%, then return from this func
     def MeasureUntilSMUsed(self):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
         print("MeasureUntilSMUsed: Begin")
         tmpTimeStamp = time.time()
 
         tmpSMClk = int(EPOptDrv.GetCurrSMClk())
         print("MeasureUntilSMUsed: GetCurrSMClk = {}".format(tmpSMClk))
 
-        if SMUtilTolerateFlag.value == False and tmpSMClk != self.MinSMClk:
-            CurrentGear.value = int(0*self.NumGears)
-            if FLAG:
-                EPOptDrv.SetEnergyGear(CurrentGear.value)
-            print("MeasureUntilSMUsed: Set CurrentGear = {:d}".format(CurrentGear.value))
+        if self.SMUtilTolerateFlag.value == False and tmpSMClk != self.MinSMClk:
+            self.CurrentGear.value = int(0*self.NumGears)
+            if isMeasureOverhead == False:
+                EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+            print("MeasureUntilSMUsed: Set CurrentGear = {:d}".format(self.CurrentGear.value))
             sys.stdout.flush()
 
         # self.SMUtil = int(0)
-        while SMUtilTolerateFlag.value == False:
+        while self.SMUtilTolerateFlag.value == False:
 
             try:
                 self.isRun = QueueGlobal.get( timeout=(1) ) # 延时，如果收到进程结束信号则立即结束延时
@@ -313,7 +320,6 @@ class EP_OPT(multiprocessing.Process):
     # wfr 20201222 测量直到认为是稳定状态
     def MeasureUntilStable(self, MeasureStateMode, StrictMode = "normal", TPrev = -1, TNextPreference = int(0)):
         global QueueGlobal
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         FlagFULL_SIMPLE = True
         FlagIPS_SIMPLE = True
@@ -324,16 +330,12 @@ class EP_OPT(multiprocessing.Process):
         print("MeasureUntilStable: MeasureStateMode = {}".format(MeasureStateMode))
 
         if MeasureStateMode == "FULL" or MeasureStateMode == "IPS":
-            if self.isMeasureOverHead == True: # wfr 20210504 measure cupti overhead
-                # EPOptDrv.SetEnergyGear(self.NumGears)
-                print("MeasureFeature: do not set gear")
-            else:
-                # 重置频率为 1350MHz
-                if FLAG:
-                    EPOptDrv.SetEnergyGear(self.BaseGear)
-                # 重置频率调节策略为 驱动默认
-                # EPOptDrv.ResetEnergyGear()
-                time.sleep(1) # 延时 1s, 使频率生效且稳定
+            # 重置频率为 1350MHz
+            if isMeasureOverhead == False:
+                EPOptDrv.SetEnergyGear(self.BaseGear)
+            # 重置频率调节策略为 驱动默认
+            # EPOptDrv.ResetEnergyGear()
+            time.sleep(1) # 延时 1s, 使频率生效且稳定
 
         if TPrev > 0:
             TEstimated = TPrev
@@ -352,7 +354,7 @@ class EP_OPT(multiprocessing.Process):
         MeasureDurationNext = self.MeasureDurationInit # 30 # (4+MeasureRedundanceFactor) * TEstimated + 2
 
         if True == self.IsSMUnusedPeriodly():
-            return (0.15 * SMUsedDuraiton.value), True
+            return (0.15 * self.SMUsedDuraiton.value), True
 
 
         # 启动测量
@@ -489,7 +491,6 @@ class EP_OPT(multiprocessing.Process):
     # wfr 20201222 测量直到认为是不稳定状态
     def MeasureUntilUnstable(self, MeasureStateMode, TRef = -1):
         global QueueGlobal
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         if True == self.isStateStable:
             PowerError = 0.18
@@ -621,11 +622,13 @@ class EP_OPT(multiprocessing.Process):
                 if True == self.IsSMUnusedPeriodly():
                     pass
                 elif abs((maxPower-minPower)/meanPower) < ReFullMeasureThreshold:
-                    PredictedOptGear.value = SearchedOptGear.value
-                    SearchedOptGear.value = int(-1)
+                    self.PredictedOptGear.value = self.SearchedOptGear.value
+                    self.SearchedOptGear.value = int(-1)
+                    self.LocalSearchState = "RESTART"
                 else:
-                    PredictedOptGear.value = int(-1)
-                    SearchedOptGear.value = int(-1)
+                    self.PredictedOptGear.value = int(-1)
+                    self.SearchedOptGear.value = int(-1)
+                    self.LocalSearchState = "RESTART"
 
                 self.dequePower.clear()
                 self.SimpleCount = int(0)
@@ -676,19 +679,15 @@ class EP_OPT(multiprocessing.Process):
 
     def MeasureFeature(self, MeasureStateMode, IsTryDetectPeriod=True, StrictMode = "normal", TPrev = -1, TNextPreference = int(0)):
         global QueueGlobal
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         print("\nMeasureFeature: MeasureStateMode = {}".format(MeasureStateMode))
 
         dictFeature = {"Energy": 1e5, "Time": self.TUpBound}
 
         if MeasureStateMode == "FULL":
-            if self.isMeasureOverHead == True: # wfr 20210504 measure cupti overhead
-                print("MeasureFeature: do not set gear")
-            else:
-                # 重置频率为 1350 MHz
-                if FLAG:
-                    EPOptDrv.SetEnergyGear(self.BaseGear)
+            # 重置频率为 1350 MHz
+            if isMeasureOverhead == False:
+                EPOptDrv.SetEnergyGear(self.BaseGear)
             time.sleep(1) # 延时 1s, 使频率生效且稳定
         elif MeasureStateMode == "IPS":
             dictFeature["sm__inst_executed.sum.per_second"] = 1
@@ -810,7 +809,6 @@ class EP_OPT(multiprocessing.Process):
         return dictFeature, TEstimated
 
     def Init(self):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         self.isInit = EPOptDrv.ManagerInit(self.DeviceIDNVML, self.MEASURE_STOP_MODE["SIGNAL"])
         print("ManagerInit = {:d}".format(self.isInit))
@@ -841,7 +839,6 @@ class EP_OPT(multiprocessing.Process):
     def WorkMode(self):
         print("WorkMode: in: sleep(3)")
         global QueueGlobal
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
         time.sleep(3)
 
         from EPOptXGBoost import EP_OPT_XGBOOST
@@ -858,16 +855,16 @@ class EP_OPT(multiprocessing.Process):
 
         EPOptXGB.Init(self.QTableDir, self.GPUName)
 
-        CurrentGear.value = self.NumGears
+        self.CurrentGear.value = self.NumGears
 
         TSimple = 0
         TFull = 0
 
         print("WorkMode: 开始工作模式")
-        print("WatchSMUsed0: SMUtilTolerateFlag = {}".format(SMUtilTolerateFlag.value))
+        print("WatchSMUsed0: SMUtilTolerateFlag = {}".format(self.SMUtilTolerateFlag.value))
 
-        PredictedOptGear.value = int(-1)
-        SearchedOptGear.value = int(-1)
+        self.PredictedOptGear.value = int(-1)
+        self.SearchedOptGear.value = int(-1)
         while True:
             # wfr init isStateStable as True
             # if isStateStable is True, current loop is periodic, need detect period when gear changed, use runtime(T) as performace metric
@@ -892,7 +889,7 @@ class EP_OPT(multiprocessing.Process):
                 if False == self.TestSMUtil():
                     continue
                 RewardDefault, ConstraintDefault = GetReward(dictFeatureDefault, self.Obj, True)
-                if FLAG:
+                if isMeasureOverhead == False:
                     EPOptDrv.SetEnergyGear(self.BaseGear)
                 dictFeatureBase, TSimple = self.MeasureFeature("SIMPLE", True, StrictMode = "strict")
                 if self.isRun == False:
@@ -905,7 +902,7 @@ class EP_OPT(multiprocessing.Process):
                 RewardDefaultRef = RewardDefault / RewardBase
                 ConstraintDefaultRef = ConstraintDefault / ConstraintBase
 
-            if PredictedOptGear.value < 0:
+            if self.PredictedOptGear.value < 0:
 
                 TimeStamp("Begin Predict")
                 print("Begin Predict")
@@ -954,122 +951,128 @@ class EP_OPT(multiprocessing.Process):
                 PredictedEnergy, PredictedTime = EPOptXGB.Predict(self.dictFeature, arrayClock, self.BaseSMClk)
                 PredictedReward, PredictedConstraint = GetArrayReward(PredictedEnergy, PredictedTime, self.Obj)
 
-                PredictedOptGear.value = SelectOptGear(arrayGear, PredictedReward, PredictedConstraint, ConstraintDefaultRef, self.Obj, self.Threshold)
+                self.PredictedOptGear.value = SelectOptGear(arrayGear, PredictedReward, PredictedConstraint, ConstraintDefaultRef, self.Obj, self.Threshold)
                 print("Optimization Object: {}".format(self.Obj))
-                print("WorkMode: Predicted Opt Gear = {}".format(PredictedOptGear.value))
+                print("WorkMode: Predicted Opt Gear = {}".format(self.PredictedOptGear.value))
 
             if True == self.IsSMUnusedPeriodly():
-                SearchedOptGear.value = PredictedOptGear.value
+                self.SearchedOptGear.value = self.PredictedOptGear.value
 
-            if FLAG == False:
-                PredictedOptGear.value = self.BaseGear
+            if isMeasureOverhead == True:
+                self.PredictedOptGear.value = self.BaseGear
 
-            if SearchedOptGear.value < 0:
+            if self.SearchedOptGear.value < 0:
 
                 TimeStamp("Begin Local Search")
                 print("Begin Local Search")
 
-                # wfr 20210629 local search algorithm
-                AllTryCount = 0
-                arrayReward = -1 * np.ones(self.NumGears)
-                arrayConstraint = -1 * np.ones(self.NumGears)
-                arrayIPS = -1 * np.ones(self.NumGears)
-                strIPS = "sm__inst_executed.sum.per_second"
-                arrayEng = -1 * np.ones(self.NumGears)
-                arrayInst = -1 * np.ones(self.NumGears)
-                strInst = "sm__inst_executed.sum"
+                if self.LocalSearchState == "RESTART":
+                    self.LocalSearchState = "CONTINUE"
+                    # wfr 20210629 local search algorithm
+                    AllTryCount = 0
+                    arrayReward = -1 * np.ones(self.NumGears)
+                    arrayConstraint = -1 * np.ones(self.NumGears)
+                    arrayIPS = -1 * np.ones(self.NumGears)
+                    strIPS = "sm__inst_executed.sum.per_second"
+                    arrayEng = -1 * np.ones(self.NumGears)
+                    arrayInst = -1 * np.ones(self.NumGears)
+                    strInst = "sm__inst_executed.sum"
 
-                # wfr 20210629 measure predicted opt gear
-                CurrentGear.value = PredictedOptGear.value
-                print("Set CurrentGear = {:d}".format(CurrentGear.value))
-                if FLAG:
-                    EPOptDrv.SetEnergyGear(CurrentGear.value)
+                    # wfr 20210629 measure predicted opt gear
+                    self.CurrentGear.value = self.PredictedOptGear.value
+                    print("Set CurrentGear = {:d}".format(self.CurrentGear.value))
+                    if isMeasureOverhead == False:
+                        EPOptDrv.SetEnergyGear(self.CurrentGear.value)
 
 
-                # if True or localStateStable == True:
-                AllTryCount += 1
-                if localStateStable == True:
-                    print("WorkMode: 简测量 PredictedOptGear = {}".format(CurrentGear.value))
-                    self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed")
-                    if self.isRun == False:
-                        return
-                else:
-                    print("WorkMode: 测量 IPS PredictedOptGear = {}".format(CurrentGear.value))
-                    # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, StrictMode = "normal")
-                    self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
-                    if self.isRun == False:
-                        return
-                    arrayIPS[CurrentGear.value] = self.dictFeature[strIPS]
-                    arrayInst[CurrentGear.value] = self.dictFeature[strInst]
-                    arrayEng[CurrentGear.value] = self.dictFeature["Energy"]
-                if False == self.TestSMUtil():
-                    continue
-                self.SaveTPrev(TSimple, CurrentGear.value)
-                print("dictFeature:")
-                print(self.dictFeature)
-
-                arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
-
-                print("Optimization Object: {}".format(self.Obj))
-                print("WorkMode: PredictedOptGear = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
-
-                
-                # wfr 20210629 explore search range's upper bound
-                radius = int(0.05 * self.NumGears)
-                GearHighDone = False
-                GearLowDone = False
-                BetterFactor = 0.85
-                GearHigh = PredictedOptGear.value
-
-                if FLAG:
-                    GearHighDone = True
-                    GearLowDone = True
-                    GearHigh = int(85 + radius)
-                    GearLow = int(85 - radius)
-
-                i = int(0)
-                while GearHighDone == False:
-                    i += int(1)
-                    GearHigh = int(min((self.NumGears-1), (GearHigh + i * radius)))
-                    CurrentGear.value = GearHigh
-                    # print("Set CurrentGear = {:d}".format(CurrentGear.value))
-                    if FLAG:
-                        EPOptDrv.SetEnergyGear(CurrentGear.value)
-                    TPrev, TNextPreference = self.EsimateTRange(CurrentGear.value)
+                    # if True or localStateStable == True:
                     AllTryCount += 1
                     if localStateStable == True:
-                        print("WorkMode: 简测量 GearHigh = {}".format(CurrentGear.value))
-                        self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
+                        print("WorkMode: 简测量 PredictedOptGear = {}".format(self.CurrentGear.value))
+                        self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed")
                         if self.isRun == False:
                             return
                     else:
-                        print("WorkMode: 测量 IPS GearHigh = {}".format(CurrentGear.value))
-                        # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
-                        self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
+                        print("WorkMode: 测量 IPS PredictedOptGear = {}".format(self.CurrentGear.value))
+                        # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, StrictMode = "normal")
+                        self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
                         if self.isRun == False:
                             return
-                        arrayIPS[CurrentGear.value] = self.dictFeature[strIPS]
-                        arrayInst[CurrentGear.value] = self.dictFeature[strInst]
-                        arrayEng[CurrentGear.value] = self.dictFeature["Energy"]
+                        arrayIPS[self.CurrentGear.value] = self.dictFeature[strIPS]
+                        arrayInst[self.CurrentGear.value] = self.dictFeature[strInst]
+                        arrayEng[self.CurrentGear.value] = self.dictFeature["Energy"]
                     if False == self.TestSMUtil():
-                        break
-                    self.SaveTPrev(TSimple, CurrentGear.value)
+                        continue
+                    self.SaveTPrev(TSimple, self.CurrentGear.value)
                     print("dictFeature:")
                     print(self.dictFeature)
-                    arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+
+                    arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+
                     print("Optimization Object: {}".format(self.Obj))
-                    print("WorkMode: GearHigh = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                    print("WorkMode: PredictedOptGear = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
 
-
-                    if GearHigh >= self.NumGears-1 or False == IsBetter(arrayReward[CurrentGear.value], arrayReward[PredictedOptGear.value], arrayConstraint[CurrentGear.value], arrayConstraint[PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
-                        print("WorkMode: 更新 GearHigh = {}".format(GearHigh))
-                        break
-                    elif True == IsBetter(arrayReward[CurrentGear.value], BetterFactor * arrayReward[PredictedOptGear.value], arrayConstraint[CurrentGear.value], arrayConstraint[PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
-                        GearLow = PredictedOptGear.value
+                    radius = int(0.05 * self.NumGears)
+                    if isMeasureOverhead == False:
+                        GearHighDone = False
+                        GearLowDone = False
+                        BetterFactor = 0.85
+                        GearHigh = self.PredictedOptGear.value
+                        
+                    elif isMeasureOverhead == True:
+                        GearHighDone = True
                         GearLowDone = True
-                        PredictedOptGear.value = CurrentGear.value
-                        print("WorkMode: 更新 PredictedOptGear = {}".format(CurrentGear.value))
-                        print("WorkMode: 更新 GearLow = {}".format(GearLow))
+                        GearHigh = int(85 + radius)
+                        GearLow = int(85 - radius)
+
+                # wfr 20210629 explore search range's upper bound
+                i = int(0)
+                while GearHighDone == False:
+                    i += int(1)
+                    if i == 1:
+                        print("Begin Find Upper Bound")
+                    GearHigh = int(min((self.NumGears-1), (GearHigh + i * radius)))
+                    self.CurrentGear.value = GearHigh
+                    # print("Set CurrentGear = {:d}".format(self.CurrentGear.value))
+                    if arrayReward[self.CurrentGear.value] < 0:
+                        if isMeasureOverhead == False:
+                            EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+                        TPrev, TNextPreference = self.EsimateTRange(self.CurrentGear.value)
+                        AllTryCount += 1
+                        if localStateStable == True:
+                            print("WorkMode: 简测量 GearHigh = {}".format(self.CurrentGear.value))
+                            self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
+                            if self.isRun == False:
+                                return
+                        else:
+                            print("WorkMode: 测量 IPS GearHigh = {}".format(self.CurrentGear.value))
+                            # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
+                            self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
+                            if self.isRun == False:
+                                return
+                            arrayIPS[self.CurrentGear.value] = self.dictFeature[strIPS]
+                            arrayInst[self.CurrentGear.value] = self.dictFeature[strInst]
+                            arrayEng[self.CurrentGear.value] = self.dictFeature["Energy"]
+                        if False == self.TestSMUtil():
+                            break
+                        self.SaveTPrev(TSimple, self.CurrentGear.value)
+                        print("dictFeature:")
+                        print(self.dictFeature)
+                        arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+                    print("Optimization Object: {}".format(self.Obj))
+                    print("WorkMode: GearHigh = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
+
+
+                    if GearHigh >= self.NumGears-1 or False == IsBetter(arrayReward[self.CurrentGear.value], arrayReward[self.PredictedOptGear.value], arrayConstraint[self.CurrentGear.value], arrayConstraint[self.PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
+                        print("WorkMode: 找到 GearHigh = {}".format(GearHigh))
+                        GearHighDone = True
+                        break
+                    elif True == IsBetter(arrayReward[self.CurrentGear.value], BetterFactor * arrayReward[self.PredictedOptGear.value], arrayConstraint[self.CurrentGear.value], arrayConstraint[self.PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
+                        GearLow = self.PredictedOptGear.value
+                        GearLowDone = True
+                        self.PredictedOptGear.value = self.CurrentGear.value
+                        print("WorkMode: 更新 PredictedOptGear = {}".format(self.CurrentGear.value))
+                        print("WorkMode: 找到 GearLow = {}".format(GearLow))
                         print("WorkMode: 更新 GearHigh = {}".format(GearHigh))
                     sys.stdout.flush()
                 # end
@@ -1079,51 +1082,53 @@ class EP_OPT(multiprocessing.Process):
 
                 # wfr 20210629 explore search range's lower bound
                 if GearLowDone == False:
-                    GearLow = PredictedOptGear.value
+                    GearLow = self.PredictedOptGear.value
                 i = int(0)
                 while GearLowDone == False:
                     i += int(1)
                     GearLow = int(max(tmpGearBegin, (GearLow - i * radius)))
-                    CurrentGear.value = GearLow
-                    # print("Set CurrentGear = {:d}".format(CurrentGear.value))
-                    if FLAG:
-                        EPOptDrv.SetEnergyGear(CurrentGear.value)
-                    TPrev, TNextPreference = self.EsimateTRange(CurrentGear.value)
-                    AllTryCount += 1
-                    if localStateStable == True:
-                        print("WorkMode: 简测量 GearLow = {}".format(CurrentGear.value))
-                        self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
-                        if self.isRun == False:
-                            return
-                    else:
-                        print("WorkMode: 测量 IPS GearLow = {}".format(CurrentGear.value))
-                        # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
-                        self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
-                        if self.isRun == False:
-                            return
-                        arrayIPS[CurrentGear.value] = self.dictFeature[strIPS]
-                        arrayInst[CurrentGear.value] = self.dictFeature[strInst]
-                        arrayEng[CurrentGear.value] = self.dictFeature["Energy"]
-                    if False == self.TestSMUtil():
-                        break
-                    self.SaveTPrev(TSimple, CurrentGear.value)
-                    print("dictFeature:")
-                    print(self.dictFeature)
-                    arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+                    self.CurrentGear.value = GearLow
+                    # print("Set CurrentGear = {:d}".format(self.CurrentGear.value))
+                    if arrayReward[self.CurrentGear.value] < 0:
+                        if isMeasureOverhead == False:
+                            EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+                        TPrev, TNextPreference = self.EsimateTRange(self.CurrentGear.value)
+                        AllTryCount += 1
+                        if localStateStable == True:
+                            print("WorkMode: 简测量 GearLow = {}".format(self.CurrentGear.value))
+                            self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
+                            if self.isRun == False:
+                                return
+                        else:
+                            print("WorkMode: 测量 IPS GearLow = {}".format(self.CurrentGear.value))
+                            # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
+                            self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
+                            if self.isRun == False:
+                                return
+                            arrayIPS[self.CurrentGear.value] = self.dictFeature[strIPS]
+                            arrayInst[self.CurrentGear.value] = self.dictFeature[strInst]
+                            arrayEng[self.CurrentGear.value] = self.dictFeature["Energy"]
+                        if False == self.TestSMUtil():
+                            break
+                        self.SaveTPrev(TSimple, self.CurrentGear.value)
+                        print("dictFeature:")
+                        print(self.dictFeature)
+                        arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
                     print("Optimization Object: {}".format(self.Obj))
-                    print("WorkMode: GearLow = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                    print("WorkMode: GearLow = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
 
 
-                    if GearLow <= tmpGearBegin or False == IsBetter(arrayReward[CurrentGear.value], arrayReward[PredictedOptGear.value], arrayConstraint[CurrentGear.value], arrayConstraint[PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
-                        print("WorkMode: 更新 GearLow = {}".format(GearLow))
+                    if GearLow <= tmpGearBegin or False == IsBetter(arrayReward[self.CurrentGear.value], arrayReward[self.PredictedOptGear.value], arrayConstraint[self.CurrentGear.value], arrayConstraint[self.PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
+                        print("WorkMode: 找到 GearLow = {}".format(GearLow))
+                        GearLowDone = True
                         break
-                    elif True == IsBetter(arrayReward[CurrentGear.value], BetterFactor * arrayReward[PredictedOptGear.value], arrayConstraint[CurrentGear.value], arrayConstraint[PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
-                        GearHigh = PredictedOptGear.value
+                    elif True == IsBetter(arrayReward[self.CurrentGear.value], BetterFactor * arrayReward[self.PredictedOptGear.value], arrayConstraint[self.CurrentGear.value], arrayConstraint[self.PredictedOptGear.value], ConstraintDefault, self.Obj, self.Threshold):
+                        GearHigh = self.PredictedOptGear.value
                         GearHighDone = True
-                        PredictedOptGear.value = CurrentGear.value
-                        print("WorkMode: 更新 PredictedOptGear = {}".format(CurrentGear.value))
+                        self.PredictedOptGear.value = self.CurrentGear.value
+                        print("WorkMode: 更新 PredictedOptGear = {}".format(self.CurrentGear.value))
                         print("WorkMode: 更新 GearLow = {}".format(GearLow))
-                        print("WorkMode: 更新 GearHigh = {}".format(GearHigh))
+                        print("WorkMode: 找到 GearHigh = {}".format(GearHigh))
                     sys.stdout.flush()
                 # end
                 
@@ -1131,43 +1136,44 @@ class EP_OPT(multiprocessing.Process):
                     continue
 
                 # wfr 20210629 Golden-Section search
+                print("Begin Golden-Section Search")
                 Ratio = (1 + np.sqrt(5)) / 2 # golden ratio
                 # init GearMiddle
-                if GearHigh - PredictedOptGear.value > PredictedOptGear.value - GearLow:
+                if GearHigh - self.PredictedOptGear.value > self.PredictedOptGear.value - GearLow:
                     GearMiddle = np.round(GearLow + Ratio / (1 + Ratio) * (GearHigh - GearLow)).astype(int)
                 else:
                     GearMiddle = np.round(GearLow + 1 / (1 + Ratio) * (GearHigh - GearLow)).astype(int)
                 
                 # measure reward under GearMiddle
-                CurrentGear.value = GearMiddle
-                if arrayReward[CurrentGear.value] < 0:
-                    if FLAG:
-                        EPOptDrv.SetEnergyGear(CurrentGear.value)
-                    TPrev, TNextPreference = self.EsimateTRange(CurrentGear.value)
+                self.CurrentGear.value = GearMiddle
+                if arrayReward[self.CurrentGear.value] < 0:
+                    if isMeasureOverhead == False:
+                        EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+                    TPrev, TNextPreference = self.EsimateTRange(self.CurrentGear.value)
                     AllTryCount += 1
                     if localStateStable == True:
-                        print("WorkMode: 简测量 GearMiddle = {}".format(CurrentGear.value))
+                        print("WorkMode: 简测量 GearMiddle = {}".format(self.CurrentGear.value))
                         self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
                         if self.isRun == False:
                             return
                     else:
-                        print("WorkMode: 测量 IPS GearMiddle = {}".format(CurrentGear.value))
+                        print("WorkMode: 测量 IPS GearMiddle = {}".format(self.CurrentGear.value))
                         # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
-                        self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
+                        self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
                         if self.isRun == False:
                             return
-                        arrayIPS[CurrentGear.value] = self.dictFeature[strIPS]
-                        arrayInst[CurrentGear.value] = self.dictFeature[strInst]
-                        arrayEng[CurrentGear.value] = self.dictFeature["Energy"]
+                        arrayIPS[self.CurrentGear.value] = self.dictFeature[strIPS]
+                        arrayInst[self.CurrentGear.value] = self.dictFeature[strInst]
+                        arrayEng[self.CurrentGear.value] = self.dictFeature["Energy"]
                     if False == self.TestSMUtil():
                         continue
-                    self.SaveTPrev(TSimple, CurrentGear.value)
+                    self.SaveTPrev(TSimple, self.CurrentGear.value)
                     print("dictFeature:")
                     print(self.dictFeature)                 
                     
-                    arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+                    arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
                     print("Optimization Object: {}".format(self.Obj))
-                    print("WorkMode: GearMiddle = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                    print("WorkMode: GearMiddle = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
 
 
                 TryCount = 0
@@ -1178,36 +1184,36 @@ class EP_OPT(multiprocessing.Process):
                         GearTry = np.round(GearMiddle - 1 / (1 + Ratio) * (GearMiddle - GearLow)).astype(int)
 
                     # measure reward under GearTry
-                    CurrentGear.value = GearTry
-                    if arrayReward[CurrentGear.value] < 0:
-                        if FLAG:
-                            EPOptDrv.SetEnergyGear(CurrentGear.value)
-                        TPrev, TNextPreference = self.EsimateTRange(CurrentGear.value)
+                    self.CurrentGear.value = GearTry
+                    if arrayReward[self.CurrentGear.value] < 0:
+                        if isMeasureOverhead == False:
+                            EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+                        TPrev, TNextPreference = self.EsimateTRange(self.CurrentGear.value)
                         AllTryCount += 1
                         if localStateStable == True:
-                            print("WorkMode: 简测量 GearTry = {}".format(CurrentGear.value))
+                            print("WorkMode: 简测量 GearTry = {}".format(self.CurrentGear.value))
                             self.dictFeature, TSimple = self.MeasureFeature("SIMPLE", localStateStable, "relaxed", TPrev, TNextPreference)
                             if self.isRun == False:
                                 return
                         else:
-                            print("WorkMode: 测量 IPS GearTry = {}".format(CurrentGear.value))
+                            print("WorkMode: 测量 IPS GearTry = {}".format(self.CurrentGear.value))
                             # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, "normal", TPrev, TNextPreference)
-                            self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
+                            self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
                             if self.isRun == False:
                                 return
-                            arrayIPS[CurrentGear.value] = self.dictFeature[strIPS]
-                            arrayInst[CurrentGear.value] = self.dictFeature[strInst]
-                            arrayEng[CurrentGear.value] = self.dictFeature["Energy"]
+                            arrayIPS[self.CurrentGear.value] = self.dictFeature[strIPS]
+                            arrayInst[self.CurrentGear.value] = self.dictFeature[strInst]
+                            arrayEng[self.CurrentGear.value] = self.dictFeature["Energy"]
                         if False == self.TestSMUtil():
                             break
-                        self.SaveTPrev(TSimple, CurrentGear.value)
+                        self.SaveTPrev(TSimple, self.CurrentGear.value)
                         TryCount += 1
                         print("dictFeature:")
                         print(self.dictFeature)
                         
-                        arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+                        arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
                         print("Optimization Object: {}".format(self.Obj))
-                        print("WorkMode: GearTry = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                        print("WorkMode: GearTry = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
 
                     if True == IsBetter(arrayReward[GearTry], arrayReward[GearMiddle], arrayConstraint[GearTry], arrayConstraint[GearMiddle], ConstraintDefault, self.Obj, self.Threshold):
                         if GearMiddle < GearTry:
@@ -1226,9 +1232,6 @@ class EP_OPT(multiprocessing.Process):
                     print("WorkMode: GearTry = {}".format(GearTry))
                     print("WorkMode: GearHigh = {}".format(GearHigh))
 
-                    if self.isRun == False:
-                        return
-                    # 检查是否停止运行
                     try:
                         self.isRun = QueueGlobal.get(block = False)
                     except:
@@ -1236,7 +1239,7 @@ class EP_OPT(multiprocessing.Process):
                     if self.isRun == False:
                         print("Manager Process: isRun = {}".format(self.isRun))
                         return
-
+                print("End Golden-Section Search")
                 if False == self.TestSMUtil():
                     continue
 
@@ -1251,44 +1254,44 @@ class EP_OPT(multiprocessing.Process):
                 # print("tmpArrayGear: {}".format(tmpArrayGear))
                 # print("tmpArrayReward: {}".format(tmpArrayReward))
                 # print("tmpArrayConstraint: {}".format(tmpArrayConstraint))
-                SearchedOptGear.value = SelectOptGear(tmpArrayGear, tmpArrayReward, tmpArrayConstraint, ConstraintDefault, self.Obj, self.Threshold)
-                CurrentGear.value = SearchedOptGear.value
+                self.SearchedOptGear.value = SelectOptGear(tmpArrayGear, tmpArrayReward, tmpArrayConstraint, ConstraintDefault, self.Obj, self.Threshold)
+                self.CurrentGear.value = self.SearchedOptGear.value
 
                 # wfr 20210818 remeasure abnormal IPS
-                tmpIndexOpt = np.argwhere(SearchedOptGear.value == tmpArrayGear).flatten()[0]
+                tmpIndexOpt = np.argwhere(self.SearchedOptGear.value == tmpArrayGear).flatten()[0]
                 if localStateStable == False and tmpArrayIPS[tmpIndexOpt] > tmpArrayIPS[-1]:
                     print("remeasure abnormal IPS")
-                    if FLAG:
-                        EPOptDrv.SetEnergyGear(CurrentGear.value)
-                    TPrev, TNextPreference = self.EsimateTRange(CurrentGear.value)
+                    if isMeasureOverhead == False:
+                        EPOptDrv.SetEnergyGear(self.CurrentGear.value)
+                    TPrev, TNextPreference = self.EsimateTRange(self.CurrentGear.value)
                     AllTryCount += 1
-                    print("WorkMode: 测量 IPS GearAbnormal = {}".format(CurrentGear.value))
+                    print("WorkMode: 测量 IPS GearAbnormal = {}".format(self.CurrentGear.value))
                     # self.dictFeature, TSimple = self.MeasureFeature("IPS", localStateStable, TPrev, TNextPreference)
-                    self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(CurrentGear.value - tmpGearBegin)])
+                    self.dictFeature, TSimple = self.MeasureFeature("IPS", False, "external", TFull*PredictedTime[int(self.CurrentGear.value - tmpGearBegin)])
                     if self.isRun == False:
                         return
                     if False == self.TestSMUtil():
                         continue
-                    self.SaveTPrev(TSimple, CurrentGear.value)
+                    self.SaveTPrev(TSimple, self.CurrentGear.value)
                     print("dictFeature:")
                     print(self.dictFeature)
 
-                    arrayIPS[CurrentGear.value] = (self.dictFeature[strIPS] + arrayIPS[CurrentGear.value]) / 2
-                    print("Mean IPS = {}".format(arrayIPS[CurrentGear.value]))
-                    self.dictFeature[strIPS] = arrayIPS[CurrentGear.value]
+                    arrayIPS[self.CurrentGear.value] = (self.dictFeature[strIPS] + arrayIPS[self.CurrentGear.value]) / 2
+                    print("Mean IPS = {}".format(arrayIPS[self.CurrentGear.value]))
+                    self.dictFeature[strIPS] = arrayIPS[self.CurrentGear.value]
 
-                    arrayInst[CurrentGear.value] = (self.dictFeature[strInst] + arrayInst[CurrentGear.value]) / 2
-                    print("Mean Inst = {}".format(arrayInst[CurrentGear.value]))
-                    self.dictFeature[strInst] = arrayInst[CurrentGear.value]
+                    arrayInst[self.CurrentGear.value] = (self.dictFeature[strInst] + arrayInst[self.CurrentGear.value]) / 2
+                    print("Mean Inst = {}".format(arrayInst[self.CurrentGear.value]))
+                    self.dictFeature[strInst] = arrayInst[self.CurrentGear.value]
 
 
-                    arrayEng[CurrentGear.value] = (self.dictFeature["Energy"] + arrayEng[CurrentGear.value]) / 2
-                    print("Mean Energy = {}".format(arrayEng[CurrentGear.value]))
-                    self.dictFeature["Energy"] = arrayEng[CurrentGear.value]
+                    arrayEng[self.CurrentGear.value] = (self.dictFeature["Energy"] + arrayEng[self.CurrentGear.value]) / 2
+                    print("Mean Energy = {}".format(arrayEng[self.CurrentGear.value]))
+                    self.dictFeature["Energy"] = arrayEng[self.CurrentGear.value]
 
-                    arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
+                    arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value] = GetReward(self.dictFeature, self.Obj, localStateStable)
                     print("Optimization Object: {}".format(self.Obj))
-                    print("WorkMode: GearAbnormal = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                    print("WorkMode: GearAbnormal = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
 
                     if self.isRun == False:
                         return
@@ -1304,25 +1307,25 @@ class EP_OPT(multiprocessing.Process):
                     # print("tmpArrayGear: {}".format(tmpArrayGear))
                     # print("tmpArrayReward: {}".format(tmpArrayReward))
                     # print("tmpArrayConstraint: {}".format(tmpArrayConstraint))
-                    SearchedOptGear.value = SelectOptGear(tmpArrayGear, tmpArrayReward, tmpArrayConstraint, ConstraintDefault, self.Obj, self.Threshold)
-                    CurrentGear.value = SearchedOptGear.value
-                if FLAG:
-                    EPOptDrv.SetEnergyGear(CurrentGear.value)
+                    self.SearchedOptGear.value = SelectOptGear(tmpArrayGear, tmpArrayReward, tmpArrayConstraint, ConstraintDefault, self.Obj, self.Threshold)
+                    self.CurrentGear.value = self.SearchedOptGear.value
+                if isMeasureOverhead == False:
+                    EPOptDrv.SetEnergyGear(self.CurrentGear.value)
                 print("Local Search Try Count: {}".format(AllTryCount))
                 print("Optimization Object: {}".format(self.Obj))
                 for i in range(len(tmpIndex)):
                     print("Gear = {}; Reward = {}".format(tmpArrayGear[i], tmpArrayReward[i]))
 
-                print("WorkMode: Searched OptGear = {}; Reward = {}; Constraint = {}".format(CurrentGear.value, arrayReward[CurrentGear.value], arrayConstraint[CurrentGear.value]))
+                print("WorkMode: Searched OptGear = {}; Reward = {}; Constraint = {}".format(self.CurrentGear.value, arrayReward[self.CurrentGear.value], arrayConstraint[self.CurrentGear.value]))
                 if self.Obj == "Energy":
-                    tmpConstraint = (arrayConstraint[CurrentGear.value]-ConstraintDefault)/ConstraintDefault
+                    tmpConstraint = (arrayConstraint[self.CurrentGear.value]-ConstraintDefault)/ConstraintDefault
                     print("ConstraintMeasured = {}; Constraint = {}".format(tmpConstraint, self.Threshold))
                 elif self.Obj == "Performance":
-                    tmpConstraint = (ConstraintDefault-arrayConstraint[CurrentGear.value])/ConstraintDefault
+                    tmpConstraint = (ConstraintDefault-arrayConstraint[self.CurrentGear.value])/ConstraintDefault
                     print("ConstraintMeasured = {}; Constraint = {}".format(tmpConstraint, self.Threshold))
-
-            if FLAG == False:
-                SearchedOptGear.value = self.BaseGear
+                print("End Local Search")
+            if isMeasureOverhead == True:
+                self.SearchedOptGear.value = self.BaseGear
 
 
             TimeStamp("Begin MeasureUntilUnstable")
@@ -1348,7 +1351,6 @@ class EP_OPT(multiprocessing.Process):
         return
 
     def run(self):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
         print("run: Manager Process")
 
         #进程ID
@@ -1365,12 +1367,17 @@ class EP_OPT(multiprocessing.Process):
         # 初始化
         self.Init()
 
-        # wfr 20210826 start watch thread to handle SMUtil == 0
-        # ThreadWatch = threading.Thread(target=EP_OPT.WatchSMUsed0, args=(self,))
-        # ThreadWatch.start()
+        self.MyManager = multiprocessing.Manager()
+        self.SMUtilTolerateFlag = self.MyManager.Value(bool, True)
+        self.SMUtil0_TolerateDuration = self.MyManager.Value(float, 7.0)
+        self.SMUsedDuraiton = self.MyManager.Value(float, -1.0)
+        self.SMUnusedDuraiton = self.MyManager.Value(float, -1.0)
+        self.SearchedOptGear = self.MyManager.Value(int, -1)
+        self.PredictedOptGear = self.MyManager.Value(int, -1)
+        self.CurrentGear = self.MyManager.Value(int, -1)
 
         # ProcessWatch = Process(target=WatchSMUsed0, args=(SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear, tmpList))
-        ProcessWatch = Process(target=WatchSMUsed0, args=())
+        ProcessWatch = Process(target=WatchSMUsed0, args=(self.SMUtilTolerateFlag, self.SMUtil0_TolerateDuration, self.SMUsedDuraiton, self.SMUnusedDuraiton, self.SearchedOptGear, self.PredictedOptGear, self.CurrentGear))
         ProcessWatch.start()
 
         # time.sleep(3) # 延时, 等待程序稳定
@@ -1386,13 +1393,14 @@ class EP_OPT(multiprocessing.Process):
             self.LearnWork()
 
         EPOptDrv.ManagerStop()
-        # ThreadWatch.join()
         ProcessWatch.join()
         ProcessWatch.terminate()
+        del self.MyManager
         print("Manager Process: End")
+        # sys.exit(0)
+        # os._exit(0) # wfr 20210814 cause residual process / not all processes can be terminated normally
 
     def Begin(self, inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="LEARN", inMeasureOutDir="NONE", inQTableDir="/home/wfr/work/Energy/EPOpt/QTable", inTestPrefix=""):
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         # RunMode = "WORk" / "LEARN" / "MEASURE"
         # 这里需要锁
@@ -1465,7 +1473,6 @@ class EP_OPT(multiprocessing.Process):
     def End(self):
 
         global QueueGlobal, QueueGlobalWatch
-        global SMUtilTolerateFlag, SMUtil0_TolerateDuration, SMUsedDuraiton, SMUnusedDuraiton, SearchedOptGear, PredictedOptGear, CurrentGear
 
         #进程ID
         PID = os.getpid()

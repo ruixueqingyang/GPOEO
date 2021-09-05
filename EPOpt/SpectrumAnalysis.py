@@ -344,7 +344,7 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         # ax.plot(arrayP0)
         # for v in arrayGroupIndex:
         #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-0.png")
+        # plt.savefig("./Trace/Grp-" + str(GrpFigCount) + "-0.png")
         # # plt.show()
         # plt.close()
         #
@@ -353,7 +353,7 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         # ax.plot(arrayP1)
         # for v in arrayGroupIndex:
         #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-1.png")
+        # plt.savefig("./Trace/Grp-" + str(GrpFigCount) + "-1.png")
         # # plt.show()
         # plt.close(fig)
         #
@@ -479,8 +479,7 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
 
         global FigCount
         import os
-        WorkDir = "D:\cloud\cloud\study\Coding\Energy\EPOpt\\tmp"
-        # WorkDir = "/home/wfr/work/Energy/EPOpt/tmp"
+        WorkDir = "./tmp"
         FigFile = os.path.join(WorkDir, "TCompute" + str(FigCount) + ".png")
         plt.savefig(FigFile)
         FigCount += 1
@@ -719,7 +718,7 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
 
     # 保存原始数据到文件
     if len(TraceFileName) > 0:
-        FileDir = "/home/wfr/work/Energy/EPOpt/Trace/"+TraceFileName+".pkl"
+        FileDir = "./Trace/"+TraceFileName+".pkl"
         pickle.dump(listSample, open(FileDir, "wb"))
 
 
