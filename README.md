@@ -17,7 +17,7 @@ cd build && make
 GPOEO only has two APIs: Begin(args) and End(). 
 The two APIs should be inserted at the beginning and end of the main python file respectively.
 As shown below:
-
+```
 from PyEPOpt import EPOpt
 
 if __name__=="__main__":
@@ -26,3 +26,4 @@ if __name__=="__main__":
     .....
 
     EPOpt.End()
+```
