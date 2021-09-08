@@ -19,7 +19,7 @@ import threading
 
 
 # lsc writes here~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-isMeasureOverhead = True # set False if want to measure overhead
+isMeasureOverhead = True # set True if want to measure overhead
 
 
 import sys
