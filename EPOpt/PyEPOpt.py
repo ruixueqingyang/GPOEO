@@ -162,7 +162,7 @@ class EP_OPT(multiprocessing.Process):
     SMClkStep = int(15)
     PowerLimit = 380
     arrayMemClk = np.array([405, 810, 5001, 9251, 9501]).astype(int)
-    MemClkBase = int(9251)
+    MemClkBase = int(9501)
     # CurrentGear = int(-1)
     GPUName = "RTX3080Ti"
     # TUpper = 1e9
@@ -1000,8 +1000,8 @@ class EP_OPT(multiprocessing.Process):
             if self.SMUsedDuraiton.value > 6 and self.SMUnusedDuraiton.value > 6 and self.SMUnusedDuraiton.value / self.SMUsedDuraiton.value > 0.2:
                 self.PredictedOptGear.value = int(106)
                 self.SearchedOptGear.value = int(106)
-                self.PredictedOptMemClk.value = int(9501)
-                self.SearchedOptMemClk.value = int(9501)
+                self.PredictedOptMemClk.value = int(9251)
+                self.SearchedOptMemClk.value = int(9251)
 
             if self.PredictedOptGear.value < 0:
 
