@@ -1,6 +1,4 @@
-// #include <boost/python.hpp>
-// #include <boost/python/module.hpp>
-// #include <boost/python/def.hpp>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/complex.h>
@@ -41,8 +39,8 @@ int MeasurerStop(){
     return Measurer.Stop();
 }
 
-int ManagerInit(int inDeviceIDNVML, int inMeasureMode){
-    return Manager.Init(inDeviceIDNVML, (MEASURE_MODE)inMeasureMode);
+int ManagerInit(int inDeviceIDNVML, int inRunMode, int inMeasureMode){
+    return Manager.Init(inDeviceIDNVML, (RUN_MODE)inRunMode, (MEASURE_MODE)inMeasureMode);
 }
 
 int ManagerStop(){
@@ -71,8 +69,16 @@ std::map< std::string, double > GetFeature(){
     return Manager.GetFeature();
 }
 
-std::vector< float > GetTrace(){
-    return Manager.GetTrace();
+std::vector< float > GetPowerTrace(){
+    return Manager.GetPowerTrace();
+}
+
+std::vector< int > GetSMUtilTrace(){
+    return Manager.GetSMUtilTrace();
+}
+
+std::vector< int > GetMemUtilTrace(){
+    return Manager.GetMemUtilTrace();
 }
 
 int GetSMClkGearCount(){
@@ -99,6 +105,14 @@ int GetCurrSMClk(){
     return Manager.GetCurrSMClk();
 }
 
+int GetCurrMemClk(){
+    return Manager.GetCurrMemClk();
+}
+
+float GetPowerLimit(){
+    return Manager.GetPowerLimit();
+}
+
 int NVMLInit(){
     return Manager.NVMLInit();
 }
@@ -117,6 +131,14 @@ int SetEnergyGear(int EnergyGear){
 
 int SetSMClkRange(int LowerSMClk, int UpperSMClk){
     return Manager.PowerManager.SetSMClkRange(LowerSMClk, UpperSMClk);
+}
+
+int SetMemClkRange(int LowerMemClk, int UpperMemClk){
+    return Manager.PowerManager.SetMemClkRange(LowerMemClk, UpperMemClk);
+}
+
+int ResetMemClkRange(){
+    return Manager.PowerManager.ResetMemClkRange();
 }
 
 int ResetEnergyGear(){
@@ -141,7 +163,9 @@ PYBIND11_MODULE(EPOptDrv, m) {
     m.def("StartMeasure", &StartMeasure, "StartMeasure");
     m.def("ReceiveData", &ReceiveData, "ReceiveData");
     m.def("StopMeasure", &StopMeasure, "StopMeasure");
-    m.def("GetTrace", &GetTrace, "GetTrace");
+    m.def("GetPowerTrace", &GetPowerTrace, "GetPowerTrace");
+    m.def("GetSMUtilTrace", &GetSMUtilTrace, "GetSMUtilTrace");
+    m.def("GetMemUtilTrace", &GetMemUtilTrace, "GetMemUtilTrace");
     m.def("GetFeature", &GetFeature, "GetFeature");
     
     m.def("GetSMClkGearCount", &GetSMClkGearCount);
@@ -151,11 +175,15 @@ PYBIND11_MODULE(EPOptDrv, m) {
     m.def("GetGPUName", &GetGPUName);
     m.def("GetCurrGPUUtil", &GetCurrGPUUtil);
     m.def("GetCurrSMClk", &GetCurrSMClk);
+    m.def("GetCurrMemClk", &GetCurrMemClk);
+    m.def("GetPowerLimit", &GetPowerLimit);
     m.def("NVMLInit", &NVMLInit);
     m.def("NVMLUninit", &NVMLUninit);
     
     m.def("SetEnergyGear", &SetEnergyGear);
     m.def("ResetEnergyGear", &ResetEnergyGear);
+    m.def("SetMemClkRange", &SetMemClkRange);
+    m.def("ResetMemClkRange", &ResetMemClkRange);
 
 }
 

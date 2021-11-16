@@ -46,7 +46,10 @@ Creation Date: 20200804
 // #define RTX2080TI "NVIDIA GeForce RTX 2080 Ti"
 // #define RTX3080TI "NVIDIA GeForce RTX 3080 Ti"
 
-#define POWER_THRESHOLD 1.65
+// RTX2080TI
+// #define POWER_THRESHOLD 1.65
+// RTX3080TI
+#define POWER_THRESHOLD 30
 #define SAMPLE_INTERVAL 100
 #define VECTOR_RESERVE 32000
 
@@ -89,16 +92,23 @@ public:
     struct timeval prevTimeStamp, currTimeStamp;
     double StartTimeStamp; // (s)
     float prevPower, currPower; // (W)
+    int prevSMUtil, currSMUtil; // SM 占用率
+    int prevMemUtil, currMemUtil; // Mem 占用率
     std::vector<double> vecTimeStamp;
-    std::vector<float> vecPower;
     std::vector<double> vecTimeStampCpy;
+    std::vector<float> vecPower;
     std::vector<float> vecPowerCpy;
+    std::vector<int> vecSMUtil;
+    std::vector<int> vecSMUtilCpy;
+    std::vector<int> vecMemUtil;
+    std::vector<int> vecMemUtilCpy;
+    
 
-    pthread_mutex_t lockData; // 为 vecTimeStampCpy 和 vecPowerCpy 加锁
+    pthread_mutex_t lockData; // 为 vecTimeStampCpy/vecPowerCpy/vecSMUtilCpy/vecMemUtilCpy 加锁
 
     float minPower, maxPower; // (W, W)
-    float avgPower; // (W) 阈值以上的功率
-    float EnergyAT, Energy; // (J)
+    float avgPower, avgPowerAT, avgSMUtil, avgMemUtil; // (W) 阈值以上的功率
+    float EnergyAT, Energy, sumSMUtil, sumMemUtil; // (J)
 
 
     int Init(EPOPT_NVML* inpNVML);

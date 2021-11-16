@@ -1,8 +1,8 @@
 /*******************************************************************************
-Copyright(C), 2020-2020, 瑞雪轻飏
+Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: PowerManager.h
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20200506
   Description: 1. 包含各种头文件
                2. 定义 可用的频率对

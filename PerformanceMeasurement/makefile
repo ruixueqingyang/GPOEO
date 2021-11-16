@@ -17,6 +17,8 @@ CC = g++
 CFLAGS = -Wall -O3 -Wno-unused-parameter
 SPECIALFLAGS = -lnvidia-ml -lpthread
 
+RPATH = -Wl,-rpath=${CXX_LIB_DIR}
+
 SRC = ../main.cpp ../PowerManager.cpp
 TARGET = PerfMeasure
 
@@ -27,4 +29,3 @@ $(TARGET): $(SRC)
 
 clean:
 	rm -f *.o *.bin
-	

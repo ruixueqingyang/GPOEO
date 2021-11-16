@@ -66,6 +66,8 @@ Creation Date: 20200728
 #define FTOK_DIR "."
 #define FTOK_ID_TIME 22
 #define FTOK_ID_ENERGY 33
+#define FTOK_ID_SMUTIL 44
+#define FTOK_ID_MEMUTIL 55
 
 #define MANAGER_STOP "MANAGER_STOP"
 #define IS_CUDA_CONTEXT_VALID "IS_CUDA_CONTEXT_VALID"
@@ -83,7 +85,7 @@ enum DATA_STATE {
 enum MEASURE_MODE { TIMER = 0, SIGNAL };
 
 // EPOpt 系统的运行模式：工作， 学习， 学习工作, 仅测量
-enum RUN_MODE { WORK = 0, LEARN, LEARN_WORK, MEASURE, VOID };
+enum RUN_MODE { WORK = 0, LEARN, LEARN_WORK, MEASURE, ODPP, VOID };
 // ENG_PERF_MEASURER 的测量模式：定时器周期性测量，信号触发测量
 // enum MEASURE_MODE { TIMER = 0, REGION, SIGNAL };
 enum MEASURE_BEGIN_SIGNAL{
@@ -102,6 +104,7 @@ class ENG_PERF_MANAGER{
 public:
     bool isCUDAContextValid; // CUDA context is valid or not
     bool RunState; // 表示是否继续测量
+    RUN_MODE RunMode;
     int DeviceIDNVML;
     CUdevice cuDevice;
     std::string chipName;
@@ -120,7 +123,8 @@ public:
     std::map< std::string, double > mapMetricNameValue;
     // std::map< std::string, double > tmpMapMetricNameValue;
     std::vector<float> vecPowerTrace;
-    // std::vector<float> tmpVecPowerTrace;
+    std::vector<int> vecSMUtilTrace;
+    std::vector<int> vecMemUtilTrace;
 
     // UDP
     int measurer2manager_fd;
@@ -131,12 +135,14 @@ public:
     socklen_t SizeofManagerAddr;
 
     // 共享内存初始化参数
-    int shmIDTime, shmIDPower;
+    int shmIDTime, shmIDPower, shmIDSMUtil, shmIDMemUtil;
     int ret;
-    key_t keyTime, keyPower;
+    key_t keyTime, keyPower, keySMUtil, keyMemUtil;
     double* pShmTime;
     float* pShmPower;
-    unsigned long long shmTimeLen, shmPowerLen;
+    int* pShmSMUtil;
+    int* pShmMemUtil;
+    unsigned long long shmTimeLen, shmPowerLen, shmSMUtilLen, shmMemUtilLen;
     unsigned long long SharedBufLen;
     pthread_mutex_t lockShm; // 共享内存读写锁
 
@@ -149,14 +155,18 @@ public:
     // wfr 20201221 信号模式下: 发送 获得数据信号, 等待接收数据完成
     int ReceiveData();
     std::map< std::string, double > GetFeature();
-    std::vector< float > GetTrace();
+    std::vector< float > GetPowerTrace();
+    std::vector< int > GetSMUtilTrace();
+    std::vector< int > GetMemUtilTrace();
     int GetCurrGPUUtil();
     int GetCurrSMClk();
+    int GetCurrMemClk();
+    float GetPowerLimit();
     int NVMLInit();
     int NVMLUninit();
 
     int Init();
-    int Init(int inDeviceIDNVML, MEASURE_MODE inMeasureMode);
+    int Init(int inDeviceIDNVML, RUN_MODE inRunMode, MEASURE_MODE inMeasureMode);
     int Stop(); // 停止测量
 
     ENG_PERF_MANAGER(){
@@ -237,12 +247,14 @@ public:
     socklen_t SizeofManagerAddr;
 
     // 共享内存初始化参数
-    int shmIDTime, shmIDPower;
+    int shmIDTime, shmIDPower, shmIDSMUtil, shmIDMemUtil;
     int ret;
-    key_t keyTime, keyPower;
+    key_t keyTime, keyPower, keySMUtil, keyMemUtil;
     double* pShmTime;
     float* pShmPower;
-    unsigned long long shmTimeLen, shmPowerLen;
+    int* pShmSMUtil;
+    int* pShmMemUtil;
+    unsigned long long shmTimeLen, shmPowerLen, shmSMUtilLen, shmMemUtilLen;
     unsigned long long SharedBufLen;
     pthread_mutex_t lockShm; // 共享内存读写锁
 

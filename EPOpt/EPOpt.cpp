@@ -1,8 +1,8 @@
 /*******************************************************************************
-Copyright(C), 2020-2020, 瑞雪轻飏
+Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: EPOpt.cpp
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20200728
   Description: profile energy/power and performance data
                optimize energy-performance jointly
@@ -77,6 +77,8 @@ int ENG_PERF_MANAGER::Init(){
 
     mapMetricNameValue.clear();
     vecPowerTrace.clear();
+    vecSMUtilTrace.clear();
+    vecMemUtilTrace.clear();
 
     // measurer ---> manager(current)
 
@@ -149,6 +151,14 @@ int ENG_PERF_MANAGER::Init(){
     if(keyPower == -1){
         perror("ENG_PERF_MANAGER: ftok: Energy");
     }
+    keySMUtil = ftok(FTOK_DIR, FTOK_ID_SMUTIL);
+    if(keySMUtil == -1){
+        perror("ENG_PERF_MANAGER: ftok: SMUtil");
+    }
+    keyMemUtil = ftok(FTOK_DIR, FTOK_ID_MEMUTIL);
+    if(keyMemUtil == -1){
+        perror("ENG_PERF_MANAGER: ftok: MemUtil");
+    }
 
     // wfr 20201221 初始化 共享内存读写锁
     pthread_mutex_init(&lockShm, NULL);
@@ -157,12 +167,13 @@ int ENG_PERF_MANAGER::Init(){
     return 0;
 }
 
-int ENG_PERF_MANAGER::Init(int inDeviceIDNVML, MEASURE_MODE inMeasureMode){
+int ENG_PERF_MANAGER::Init(int inDeviceIDNVML, RUN_MODE inRunMode, MEASURE_MODE inMeasureMode){
     DeviceIDNVML = inDeviceIDNVML;
 
     std::cout << "ENG_PERF_MANAGER: inDeviceIDNVML = " << inDeviceIDNVML << std::endl;
 
     PowerManager.initArg(DeviceIDNVML, &MyNVML, 2, 0.0, 1.0);
+    RunMode = inRunMode;
     MeasureMode = inMeasureMode;
     // std::cout << "PowerManager.initArg()" << std::endl;
     RunState = true;
@@ -266,7 +277,7 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
         isCUDAContextValid = (bool)(Msg[1+strlen(IS_CUDA_CONTEXT_VALID)]);
         pthread_cond_broadcast(&condIsCuContextValid);
         pthread_mutex_unlock(&mutexIsCuContextValid);
-
+        
         std::cout << "ReceiveDataFromUDP: isCUDAContextValid = " << isCUDAContextValid << std::endl;
         return 0;
     }else if(0 == strncmp(MANAGER_STOP, Msg, strlen(MANAGER_STOP))){
@@ -287,6 +298,8 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
     
     mapMetricNameValue.clear();
     vecPowerTrace.clear();
+    vecSMUtilTrace.clear();
+    vecMemUtilTrace.clear();
 
     // 1. 获得 feature
     // 2. 获得 SampleCount, 等于 0 则说明没有测量 trace
@@ -302,6 +315,7 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
             tmpData = *( (double*)(&Msg[MsgIndex]) );
             MsgIndex += sizeof(double);
             mapMetricNameValue.insert(std::pair<std::string, double>(tmpStr, tmpData));
+            // std::cout << "ReceiveDataFromUDP: tmpStr = " << tmpStr << "; tmpData = " << tmpData << std::endl;
         }else
         {
             tmpSampleCount = *( (unsigned long long*)(&Msg[MsgIndex]) );
@@ -327,6 +341,14 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
         if(keyPower == -1){
             perror("ReceiveData: ftok: Energy");
         }
+        keySMUtil = ftok(FTOK_DIR, FTOK_ID_SMUTIL);
+        if(keySMUtil == -1){
+            perror("ReceiveData: ftok: SMUtil");
+        }
+        keyMemUtil = ftok(FTOK_DIR, FTOK_ID_MEMUTIL);
+        if(keyMemUtil == -1){
+            perror("ReceiveData: ftok: MemUtil");
+        }
     
         // 创建进程间共享内存
         shmTimeLen = tmpSampleCount * sizeof(double);
@@ -341,6 +363,18 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
             perror("ReceiveData: shmget: Energy");
             exit(-1);
         }
+        shmSMUtilLen = tmpSampleCount * sizeof(int);
+        shmIDSMUtil = shmget(keySMUtil, shmSMUtilLen, IPC_CREAT|0666);
+        if(shmIDSMUtil < 0){
+            perror("ReceiveData: shmget: SMUtil");
+            exit(-1);
+        }
+        shmMemUtilLen = tmpSampleCount * sizeof(int);
+        shmIDMemUtil = shmget(keyMemUtil, shmMemUtilLen, IPC_CREAT|0666);
+        if(shmIDMemUtil < 0){
+            perror("ReceiveData: shmget: MemUtil");
+            exit(-1);
+        }
     
         // 映射进程间共享内存
         pShmTime = (double*)shmat(shmIDTime, NULL, 0);
@@ -353,8 +387,20 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
             perror("ReceiveData: shmat: Energy");
             _exit(-1);
         }
+        pShmSMUtil = (int*)shmat(shmIDSMUtil, NULL, 0);
+        if(pShmSMUtil < 0){
+            perror("ReceiveData: shmat: SMUtil");
+            _exit(-1);
+        }
+        pShmMemUtil = (int*)shmat(shmIDMemUtil, NULL, 0);
+        if(pShmMemUtil < 0){
+            perror("ReceiveData: shmat: MemUtil");
+            _exit(-1);
+        }
 
         vecPowerTrace.insert(vecPowerTrace.begin(), pShmPower, pShmPower+tmpSampleCount);
+        vecSMUtilTrace.insert(vecSMUtilTrace.begin(), pShmSMUtil, pShmSMUtil+tmpSampleCount);
+        vecMemUtilTrace.insert(vecMemUtilTrace.begin(), pShmMemUtil, pShmMemUtil+tmpSampleCount);
 
         // 解锁 共享内存读写
         pthread_mutex_unlock(&lockShm);
@@ -375,6 +421,18 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
             perror("ReceiveData: shmdt: Energy");
             exit(1);
         }
+        ret = shmdt(pShmSMUtil);
+        if(ret < 0)
+        {
+            perror("ReceiveData: shmdt: SMUtil");
+            exit(1);
+        }
+        ret = shmdt(pShmMemUtil);
+        if(ret < 0)
+        {
+            perror("ReceiveData: shmdt: MemUtil");
+            exit(1);
+        }
     }
 
     // std::cout << "ReceiveDataFromUDP: has got data" << std::endl;
@@ -392,11 +450,20 @@ int ENG_PERF_MANAGER::ReceiveDataFromUDP(){
 
 // 获得 时间/能耗/性能 数据
 std::map< std::string, double > ENG_PERF_MANAGER::GetFeature(){
+    if (mapMetricNameValue["Time"] < 0.1) {
+        mapMetricNameValue["Time"] = 0.1;
+    }
     return mapMetricNameValue;
 }
 // 获得 功率 trace 数据
-std::vector< float > ENG_PERF_MANAGER::GetTrace(){
+std::vector< float > ENG_PERF_MANAGER::GetPowerTrace(){
     return vecPowerTrace;
+}
+std::vector< int > ENG_PERF_MANAGER::GetSMUtilTrace(){
+    return vecSMUtilTrace;
+}
+std::vector< int > ENG_PERF_MANAGER::GetMemUtilTrace(){
+    return vecMemUtilTrace;
 }
 
 int ENG_PERF_MANAGER::GetCurrGPUUtil(){
@@ -435,7 +502,7 @@ int ENG_PERF_MANAGER::GetCurrSMClk(){
     nvmlResult = nvmlDeviceGetHandleByIndex(DeviceIDNVML, &nvmlDevice);
 	if (NVML_SUCCESS != nvmlResult)
 	{
-		printf("ENG_PERF_MANAGER::GetCurrGPUUtil: Failed to get handle for device %d: %s\n", DeviceIDNVML, nvmlErrorString(nvmlResult));
+		printf("ENG_PERF_MANAGER::GetCurrSMClk: Failed to get handle for device %d: %s\n", DeviceIDNVML, nvmlErrorString(nvmlResult));
 		return 101;
 	}
 
@@ -451,6 +518,58 @@ int ENG_PERF_MANAGER::GetCurrSMClk(){
 
     return currSMClk;
 }
+
+int ENG_PERF_MANAGER::GetCurrMemClk(){
+
+    nvmlReturn_t nvmlResult;
+    nvmlDevice_t nvmlDevice;
+
+    MyNVML.Init();
+    nvmlResult = nvmlDeviceGetHandleByIndex(DeviceIDNVML, &nvmlDevice);
+	if (NVML_SUCCESS != nvmlResult)
+	{
+		printf("ENG_PERF_MANAGER::GetCurrMemClk: Failed to get handle for device %d: %s\n", DeviceIDNVML, nvmlErrorString(nvmlResult));
+		return 101;
+	}
+
+    nvmlUtilization_t currUtil;
+    unsigned int currMemClk; // (MHz)
+    nvmlResult = nvmlDeviceGetClockInfo(nvmlDevice, NVML_CLOCK_MEM, &currMemClk);
+    if (NVML_SUCCESS != nvmlResult) {
+        printf("ENG_PERF_MANAGER::GetCurrMemClk: Failed to get Mem clock: %s\n", nvmlErrorString(nvmlResult));
+        return 9251;
+    }
+
+    MyNVML.Uninit();
+
+    return currMemClk;
+}
+
+float ENG_PERF_MANAGER::GetPowerLimit(){
+
+    nvmlReturn_t nvmlResult;
+    nvmlDevice_t nvmlDevice;
+
+    MyNVML.Init();
+    nvmlResult = nvmlDeviceGetHandleByIndex(DeviceIDNVML, &nvmlDevice);
+	if (NVML_SUCCESS != nvmlResult)
+	{
+		printf("ENG_PERF_MANAGER::GetPowerLimit: Failed to get handle for device %d: %s\n", DeviceIDNVML, nvmlErrorString(nvmlResult));
+		return 380;
+	}
+
+    unsigned int PowerLimit; // (MHz)
+    nvmlResult = nvmlDeviceGetPowerManagementLimit(nvmlDevice, &PowerLimit);
+    if (NVML_SUCCESS != nvmlResult) {
+        printf("ENG_PERF_MANAGER::GetPowerLimit: Failed to get power limit: %s\n", nvmlErrorString(nvmlResult));
+        return 380;
+    }
+
+    MyNVML.Uninit();
+
+    return PowerLimit / 1000;
+}
+
 
 int ENG_PERF_MANAGER::NVMLInit(){
     MyNVML.Init();
@@ -471,13 +590,12 @@ int ENG_PERF_MANAGER::StartMeasure(std::vector<std::string> vecMetricName, std::
     // pthread_mutex_unlock(&mutexGetData);
 
     pthread_mutex_lock(&mutexIsCuContextValid);
-    while (isCUDAContextValid == false && RunState == true)
+    while (isCUDAContextValid == false && RunState == true && RunMode != RUN_MODE::ODPP)
     {
         std::cout << "ENG_PERF_MANAGER::StartMeasure: waiting CUDA context valid" << std::endl;
         pthread_cond_wait(&condIsCuContextValid, &mutexIsCuContextValid);
     }
     pthread_mutex_unlock(&mutexIsCuContextValid);
-
     std::cout << "ENG_PERF_MANAGER::StartMeasure: isCUDAContextValid = " << isCUDAContextValid << std::endl;
 
     if (RunState == false)
@@ -547,7 +665,7 @@ int ENG_PERF_MANAGER::StartMeasure(std::vector<std::string> vecMetricName, std::
     {
         // 等待测量完成
         pthread_mutex_lock(&mutexGetData);
-        if (isCUDAContextValid == true && RunState == true)
+        if (((isCUDAContextValid == true) || (RunMode == RUN_MODE::ODPP)) && RunState == true)
         {
             pthread_cond_wait(&condGetData, &mutexGetData);
         }
@@ -577,7 +695,7 @@ int ENG_PERF_MANAGER::StopMeasure(){
     // 等待获得数据完成
     std::cout << "ENG_PERF_MANAGER::StopMeasure: wait get data" << std::endl;
     pthread_mutex_lock(&mutexGetData);
-    if (isCUDAContextValid == true && RunState == true)
+    if (((isCUDAContextValid == true) || (RunMode == RUN_MODE::ODPP)) && RunState == true)
     {
         pthread_cond_wait(&condGetData, &mutexGetData);
     }
@@ -606,7 +724,7 @@ int ENG_PERF_MANAGER::ReceiveData(){
 
     // 等待获得数据完成
     pthread_mutex_lock(&mutexGetData);
-    if (isCUDAContextValid == true && RunState == true)
+    if (((isCUDAContextValid == true) || (RunMode == RUN_MODE::ODPP)) && RunState == true)
     {
         pthread_cond_wait(&condGetData, &mutexGetData);
     }
@@ -644,19 +762,19 @@ int ENG_PERF_MEASURER::Init(){
     mapMetricNameValue.clear();
 
     // measurer(current) ---> manager
-/*
+
     // 初始化 TCP
     //创建socket
-    if( (measurer2manager_fd = socket(AF_INET,SOCK_STREAM,0)) == -1) {
-        printf(" create socket error: %s (errno :%d)\n",strerror(errno),errno);
-        return 0;
-    }
+    // if( (measurer2manager_fd = socket(AF_INET,SOCK_STREAM,0)) == -1) {
+    //     printf(" create socket error: %s (errno :%d)\n",strerror(errno),errno);
+    //     return 0;
+    // }
     
-    memset(&manager_addr,0,sizeof(manager_addr));
-    manager_addr.sin_family = AF_INET;
-    manager_addr.sin_addr.s_addr = htonl(INADDR_ANY);  //注意网络序转换
-    manager_addr.sin_port = htons(UDP_PORT_DATA);
-*/
+    // memset(&manager_addr,0,sizeof(manager_addr));
+    // manager_addr.sin_family = AF_INET;
+    // manager_addr.sin_addr.s_addr = htonl(INADDR_ANY);  //注意网络序转换
+    // manager_addr.sin_port = htons(UDP_PORT_DATA);
+
     // 初始化 UDP
     measurer2manager_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if(measurer2manager_fd < 0){
@@ -702,18 +820,43 @@ int ENG_PERF_MEASURER::Init(){
     if(keyPower == -1){
         perror("ENG_PERF_MEASURER: ftok: Energy");
     }
+    keySMUtil = ftok(FTOK_DIR, FTOK_ID_SMUTIL);
+    if(keySMUtil == -1){
+        perror("ENG_PERF_MEASURER: ftok: SMUtil");
+    }
+    keyMemUtil = ftok(FTOK_DIR, FTOK_ID_MEMUTIL);
+    if(keyMemUtil == -1){
+        perror("ENG_PERF_MEASURER: ftok: MemUtil");
+    }
 
     // 创建进程间共享内存
     shmTimeLen = SHARED_BUF_LEN * sizeof(double);
-    shmIDTime = shmget(keyTime, shmTimeLen, IPC_CREAT|0666);    
+    // std::cout << "ENG_PERF_MEASURER: keyTime = " << keyTime << std::endl;
+    // std::cout << "ENG_PERF_MEASURER: shmTimeLen = " << shmTimeLen << std::endl;
+    shmIDTime = shmget(keyTime, shmTimeLen, IPC_CREAT|0666);
+    // shmIDTime = shmget(0x22222223, shmTimeLen, IPC_CREAT|0666);
+    // std::cout << "ENG_PERF_MEASURER: shmIDTime = " << shmIDTime << std::endl;
     if(shmIDTime < 0){
         perror("ENG_PERF_MEASURER: shmget: Time");
+        // std::cout << "ENG_PERF_MEASURER: errno = " << errno << std::endl;
         exit(-1);
     }
     shmPowerLen = SHARED_BUF_LEN * sizeof(float);
-    shmIDPower = shmget(keyPower, shmPowerLen, IPC_CREAT|0666);    
+    shmIDPower = shmget(keyPower, shmPowerLen, IPC_CREAT|0666);
     if(shmIDPower < 0){
         perror("ENG_PERF_MEASURER: shmget: Energy");
+        exit(-1);
+    }
+    shmSMUtilLen = SHARED_BUF_LEN * sizeof(int);
+    shmIDSMUtil = shmget(keySMUtil, shmSMUtilLen, IPC_CREAT|0666);
+    if(shmIDSMUtil < 0){
+        perror("ENG_PERF_MEASURER: shmget: SMUtil");
+        exit(-1);
+    }
+    shmMemUtilLen = SHARED_BUF_LEN * sizeof(int);
+    shmIDMemUtil = shmget(keyMemUtil, shmMemUtilLen, IPC_CREAT|0666);
+    if(shmIDMemUtil < 0){
+        perror("ENG_PERF_MEASURER: shmget: MemUtil");
         exit(-1);
     }
     SharedBufLen = SHARED_BUF_LEN;
@@ -727,6 +870,16 @@ int ENG_PERF_MEASURER::Init(){
     pShmPower = (float*)shmat(shmIDPower, NULL, 0);
     if(pShmPower < 0){
         perror("ENG_PERF_MEASURER: shmat: Energy");
+        _exit(-1);
+    }
+    pShmSMUtil = (int*)shmat(shmIDSMUtil, NULL, 0);
+    if(pShmSMUtil < 0){
+        perror("ENG_PERF_MEASURER: shmat: SMUtil");
+        _exit(-1);
+    }
+    pShmMemUtil = (int*)shmat(shmIDMemUtil, NULL, 0);
+    if(pShmMemUtil < 0){
+        perror("ENG_PERF_MEASURER: shmat: MemUtil");
         _exit(-1);
     }
 
@@ -883,44 +1036,48 @@ int ENG_PERF_MEASURER::Init(int inDeviceIDCUDADrv, int inDeviceIDNVML, RUN_MODE 
     vecMetricName = inVecMetricName;
     // std::cout << "DeviceIDCUDADrv = " << DeviceIDCUDADrv << std::endl;
 
-    // std::cout << "cuInit" << std::endl;
-    CHECK_CUDA_DRIVER_ERROR(cuInit(0)); // wfr 20210329 initialize CUDA driver
-    // wfr 20210329 ENG_PERF_MEASURER::Init is called at the entry of applications, so CUDA driver should be initialized by itself
+    // wfr 20210909 ODPP 模式不需要 CUDA 层面的信息
+    if(RunMode != RUN_MODE::ODPP){
+        // std::cout << "cuInit" << std::endl;
+        CHECK_CUDA_DRIVER_ERROR(cuInit(0)); // wfr 20210329 initialize CUDA driver
+        // wfr 20210329 ENG_PERF_MEASURER::Init is called at the entry of applications, so CUDA driver should be initialized by itself
 
-    int DeviceCount;
-    // std::cout << "cuDeviceGetCount" << std::endl;
-    CHECK_CUDA_DRIVER_ERROR(cuDeviceGetCount(&DeviceCount));
-    std::cout << "ENG_PERF_MEASURER::Init: cuDeviceGetCount: DeviceCount = " << DeviceCount << std::endl;
+        int DeviceCount;
+        // std::cout << "cuDeviceGetCount" << std::endl;
+        CHECK_CUDA_DRIVER_ERROR(cuDeviceGetCount(&DeviceCount));
+        std::cout << "ENG_PERF_MEASURER::Init: cuDeviceGetCount: DeviceCount = " << DeviceCount << std::endl;
 
-    // std::cout << "cuDeviceGet" << std::endl;
-    CHECK_CUDA_DRIVER_ERROR(cuDeviceGet(&cuDevice, DeviceIDCUDADrv));
+        // std::cout << "cuDeviceGet" << std::endl;
+        CHECK_CUDA_DRIVER_ERROR(cuDeviceGet(&cuDevice, DeviceIDCUDADrv));
 
-    CUuuid uuid;
-    // std::cout << "cuDeviceGetUuid" << std::endl;
-    CHECK_CUDA_DRIVER_ERROR(cuDeviceGetUuid(&uuid, cuDevice));
-    std::cout << "ENG_PERF_MEASURER::Init: uuid = " << std::hex;
-    for(int i = 0; i<16; i++){
-        std::cout << ((unsigned int)(uuid.bytes[i])&((unsigned int)(0xFF))) << " ";
+        CUuuid uuid;
+        // std::cout << "cuDeviceGetUuid" << std::endl;
+        CHECK_CUDA_DRIVER_ERROR(cuDeviceGetUuid(&uuid, cuDevice));
+        std::cout << "ENG_PERF_MEASURER::Init: uuid = " << std::hex;
+        for(int i = 0; i<16; i++){
+            std::cout << ((unsigned int)(uuid.bytes[i])&((unsigned int)(0xFF))) << " ";
+        }
+        std::cout << std::dec << std::endl;
+
+        // std::cout << "cuCtxCreate" << std::endl;
+        // CHECK_CUDA_DRIVER_ERROR(cuCtxCreate(&cuContext, 0, cuDevice));
+        // std::cout << "cuCtxSynchronize" << std::endl;
+        // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
+
+        // get current CUDA context for profiling
+        // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
+        // std::cout << "cuCtxGetCurrent" << std::endl;
+        // CHECK_CUDA_DRIVER_ERROR(cuCtxGetCurrent(&cuContext));
+        // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
+
+        // if(cuContext == NULL){
+        //     std::cout << "ENG_PERF_MEASURER ERROR: Cannot get current cuda context!" << std::endl;
+        //     return -1;
+        // }
+
+        // std::cout << "ENG_PERF_MEASURER::Init: cuContext = " << std::hex << (void*)cuContext << std::dec << std::endl;
     }
-    std::cout << std::dec << std::endl;
-
-    // std::cout << "cuCtxCreate" << std::endl;
-    // CHECK_CUDA_DRIVER_ERROR(cuCtxCreate(&cuContext, 0, cuDevice));
-    // std::cout << "cuCtxSynchronize" << std::endl;
-    // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
-
-    // get current CUDA context for profiling
-    // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
-    // std::cout << "cuCtxGetCurrent" << std::endl;
-    // CHECK_CUDA_DRIVER_ERROR(cuCtxGetCurrent(&cuContext));
-    // CHECK_CUDA_DRIVER_ERROR(cuCtxSynchronize());
-
-    // if(cuContext == NULL){
-    //     std::cout << "ENG_PERF_MEASURER ERROR: Cannot get current cuda context!" << std::endl;
-    //     return -1;
-    // }
-
-    // std::cout << "ENG_PERF_MEASURER::Init: cuContext = " << std::hex << (void*)cuContext << std::dec << std::endl;
+    
 
     if (isMeasurePower == true)
     {
@@ -943,27 +1100,32 @@ int ENG_PERF_MEASURER::Init(int inDeviceIDCUDADrv, int inDeviceIDNVML, RUN_MODE 
         exit(1);
     }
 
-    // 20210715 这里启动新线程，在其中调用 cupti 的 API 观察是否会导致显著开销
-    pthread_attr_init(&AttrCUContext);
-    pthread_attr_setdetachstate(&AttrCUContext, PTHREAD_CREATE_DETACHED);
-    int tmpErr = pthread_create(&TIDCUContext, &AttrCUContext, CatchCUContext, (void*)MeasurerThreadArgv);
-    if(err != 0) {
-        std::cerr << "ERROR: pthread_create() return code: " << tmpErr << std::endl;
-        exit(1);
+    // wfr 20210909 ODPP 模式不测量 performance counters, 所以不需要 CUContext
+    if(RunMode != RUN_MODE::ODPP){
+
+        // 20210715 这里启动新线程，在其中调用 cupti 的 API 观察是否会导致显著开销
+        pthread_attr_init(&AttrCUContext);
+        pthread_attr_setdetachstate(&AttrCUContext, PTHREAD_CREATE_DETACHED);
+        int err = pthread_create(&TIDCUContext, &AttrCUContext, CatchCUContext, (void*)MeasurerThreadArgv);
+        if(err != 0) {
+            std::cerr << "ERROR: pthread_create() return code: " << err << std::endl;
+            exit(1);
+        }
+
+        // wfr 20210326 enable callback function EPMeasureCallbackHandler() for cuCtxCreate() to get cuContext and begin EPMeasurer
+        // CUpti_SubscriberHandle subscriber;
+        // CUPTI_API_CALL(cuptiSubscribe(&subscriber, (CUpti_CallbackFunc)EPMeasureCallbackHandler, (void*)this));
+        // CUPTI_API_CALL(cuptiEnableCallback(1, subscriber, CUPTI_CB_DOMAIN_RESOURCE, CUPTI_CBID_RESOURCE_CONTEXT_CREATED));
+        // CUPTI_API_CALL(cuptiEnableCallback(1, subscriber, CUPTI_CB_DOMAIN_RESOURCE, CUPTI_CBID_RESOURCE_CONTEXT_DESTROY_STARTING));
+        // CUPTIUsageCount = 1;
+
+        while (isThreadInit != true)
+        {
+            usleep(50*1000); // 50 ms
+        }
+
     }
 
-    // wfr 20210326 enable callback function EPMeasureCallbackHandler() for cuCtxCreate() to get cuContext and begin EPMeasurer
-    // CUpti_SubscriberHandle subscriber;
-    // CUPTI_API_CALL(cuptiSubscribe(&subscriber, (CUpti_CallbackFunc)EPMeasureCallbackHandler, (void*)this));
-    // CUPTI_API_CALL(cuptiEnableCallback(1, subscriber, CUPTI_CB_DOMAIN_RESOURCE, CUPTI_CBID_RESOURCE_CONTEXT_CREATED));
-    // CUPTI_API_CALL(cuptiEnableCallback(1, subscriber, CUPTI_CB_DOMAIN_RESOURCE, CUPTI_CBID_RESOURCE_CONTEXT_DESTROY_STARTING));
-    // CUPTIUsageCount = 1;
-
-    while (isThreadInit != true)
-    {
-        usleep(50*1000); // 50 ms
-    }
-    
     return 0;
 }
 
@@ -985,7 +1147,7 @@ int ENG_PERF_MEASURER::SendCUDAContextValidState(){
     buf[LenSend] = (char)CUDAContextValidState;
     LenSend += 1;
 
-    // wfr 20210329 send start signal to manager, manager should be started after measurer
+    // wfr 20210329 send start signal to manager, manager should be started before measurer
     if(connect(measurer2manager_fd,(struct sockaddr*)&manager_addr,sizeof(manager_addr)) < 0) {
         printf(" connect socket error: %s(errno :%d)\n",strerror(errno),errno);
         return 0;
@@ -1073,14 +1235,14 @@ static void* MeasureMetric(void* MeasurerThreadArgv){
             tv.tv_usec = (unsigned int)(tmpDuration % 1000000);
 
             // std::cout << "usleep(" << tmpDuration << ")" << std::endl;
-            // gettimeofday(&TimeStamp0, NULL);
+            gettimeofday(&TimeStamp0, NULL);
             sleepbyselect(tv);
             // usleep(tmpDuration);
-            // gettimeofday(&TimeStamp1, NULL);
+            gettimeofday(&TimeStamp1, NULL);
             // std::cout << "usleep(" << tmpDuration << ") completes" << std::endl;
 
-            // double tmpActualDuration = (TimeStamp1.tv_sec - TimeStamp0.tv_sec) + (TimeStamp1.tv_usec - TimeStamp0.tv_usec) * 1e-6;
-            // std::cout << "MeasureMetric: tmpActualDuration = " << tmpActualDuration << std::endl;
+            double tmpActualDuration = (TimeStamp1.tv_sec - TimeStamp0.tv_sec) + (TimeStamp1.tv_usec - TimeStamp0.tv_usec) * 1e-6;
+            std::cout << "MeasureMetric: tmpActualDuration = " << tmpActualDuration << std::endl;
         }else if (EPMeasurer.MeasureMode == MEASURE_MODE::SIGNAL)
         {
             // std::cout << "MeasureMetric: 3" << std::endl;
@@ -1131,7 +1293,7 @@ int ENG_PERF_MEASURER::BeginOnce(){
     MetricIndex = 0;
     // std::cout << "ENG_PERF_MEASURER::BeginOnce: MetricIndex = 0" << std::endl;
     mapMetricNameValue.clear();
-    mapMetricNameValue.insert({ {"Energy", (double)0.0}, {"Time", (double)0.0} });
+    mapMetricNameValue.insert({ { "Energy", (double)0.0 }, {"Time", (double)0.1}, {"Power", (double)0.0}, {"SMUtil", (double)0.0}, {"MemUtil", (double)0.0} });
 
     
     // 2. 收集 metric
@@ -1166,12 +1328,12 @@ int ENG_PERF_MEASURER::BeginOnce(){
         {
             std::cout << "ENG_PERF_MEASURER::BeginOnce 0 WARNING: cuda context invalid" << std::endl;
             cuContext = 0;
-            SendCUDAContextValidState();
+            // SendCUDAContextValidState();
         }
     }
 
     // std::cout << "ENG_PERF_MEASURER::BeginOnce: 0" << std::endl;
-    std::cout << "ENG_PERF_MEASURER::BeginOnce: current cuContext = " << std::hex << cuContext << std::dec << std::endl;
+    // std::cout << "ENG_PERF_MEASURER::BeginOnce: current cuContext = " << std::hex << cuContext << std::dec << std::endl;
     
     if (cuContext != 0 && isMeasurePerformace==true && isMeasureFullFeature==true)
     {
@@ -1183,7 +1345,7 @@ int ENG_PERF_MEASURER::BeginOnce(){
 
         // CUcontext cuContext;
         // DRIVER_API_CALL(cuCtxGetCurrent(&cuContext));
-        // std::cout << "ENG_PERF_MEASURER::BeginOnce: cuContext = " << std::hex << (void*)cuContext << std::dec << std::endl;
+        std::cout << "ENG_PERF_MEASURER::BeginOnce: cuContext = " << std::hex << (void*)cuContext << std::dec << std::endl;
 
         // CPUTI 初始化
         CUpti_Profiler_Initialize_Params profilerInitializeParams = {CUpti_Profiler_Initialize_Params_STRUCT_SIZE};
@@ -1265,7 +1427,7 @@ int ENG_PERF_MEASURER::BeginOnce(){
 
         beginPassParams = {CUpti_Profiler_BeginPass_Params_STRUCT_SIZE};
 
-        std::string rangeName = "userrangeA";
+        std::string rangeName = "UserRange";
         pushRangeParams.pRangeName = rangeName.c_str();
 
         CHECK_CUPTI_ERROR(cuptiProfilerBeginPass(&beginPassParams));
@@ -1332,7 +1494,6 @@ int ENG_PERF_MEASURER::HandleSignal(){
                     MeasureDuration = *(float*)(&Msg[tmpSignal.size()+1+sizeof(int)]);
                 }
                 // std::cout << "ENG_PERF_MEASURER::MeasureBeginSignal = FEATURE_TRACE" << std::endl;
-                // return 0;
             }
             else if (tmpSignal == "FEATURE")
             {
@@ -1343,9 +1504,9 @@ int ENG_PERF_MEASURER::HandleSignal(){
                 if (MeasureMode == MEASURE_MODE::TIMER)
                 {
                     MeasureDuration = *(float*)(&Msg[tmpSignal.size()+1+sizeof(int)]);
+                    // std::cout << "ENG_PERF_MEASURER::MeasureBeginSignal: MeasureDuration = " << std::dec << MeasureDuration << std::endl;
                 }
                 // std::cout << "ENG_PERF_MEASURER::MeasureBeginSignal = FEATURE" << std::endl;
-                // return 0;
             }
             else if (tmpSignal == "SIMPLE_FEATURE_TRACE")
             {
@@ -1470,10 +1631,10 @@ int ENG_PERF_MEASURER::EndOnce(bool isCuContextValid){
 
     // std::cout << "ENG_PERF_MEASURER::EndOnce(): 5" << std::endl;
 
-    if (cuContext == 0)
-    {
-        SendCUDAContextValidState();
-    }
+    // if (cuContext == 0)
+    // {
+    //     SendCUDAContextValidState();
+    // }
 
     // std::cout << "ENG_PERF_MEASURER::EndOnce(): 6" << std::endl;
 
@@ -1564,12 +1725,18 @@ int ENG_PERF_MEASURER::EndOnce(bool isCuContextValid){
     {
         if (isMeasurePerformace==true)
         {
-            mapMetricNameValue["Energy"] = PowerMeasurer.EnergyAT;
+            mapMetricNameValue["Energy"] = PowerMeasurer.Energy;
             mapMetricNameValue["Time"] = PowerMeasurer.ActualDuration;
+            mapMetricNameValue["Power"] = PowerMeasurer.avgPower;
+            mapMetricNameValue["SMUtil"] = PowerMeasurer.avgSMUtil;
+            mapMetricNameValue["MemUtil"] = PowerMeasurer.avgMemUtil;
         }else
         {
-            mapMetricNameValue["Energy"] = PowerMeasurer.EnergyAT;
+            mapMetricNameValue["Energy"] = PowerMeasurer.Energy;
             mapMetricNameValue["Time"] = PowerMeasurer.ActualDuration;
+            mapMetricNameValue["Power"] = PowerMeasurer.avgPower;
+            mapMetricNameValue["SMUtil"] = PowerMeasurer.avgSMUtil;
+            mapMetricNameValue["MemUtil"] = PowerMeasurer.avgMemUtil;
             for (size_t i = 0; i < vecMetricName.size(); i++)
             { // 不测量性能特征时, 也把数据填 0
                 mapMetricNameValue.insert(std::pair<std::string, double>(vecMetricName[i], (double)0.0));
@@ -1589,14 +1756,9 @@ int ENG_PERF_MEASURER::EndOnce(bool isCuContextValid){
     //     std::cout << "mapMetricNameValue[" << iter->first << "] = " << iter->second << std::endl;
     // }
     
-    if ( (isMeasureFullFeature==false) 
-        || ( isMeasureFullFeature==true 
-            && mapMetricNameValue.size() == 2+vecMetricName.size() ) )
-    {
-        // 发送该组数据
-        SendData(isRecordTrace);
-        // std::cout << "ENG_PERF_MEASURER::EndOnce(): SendData()" << std::endl;
-    }
+    // 发送数据
+    SendData(isRecordTrace);
+    // std::cout << "ENG_PERF_MEASURER::EndOnce(): SendData()" << std::endl;
 
     // std::cout << "ENG_PERF_MEASURER::EndOnce(): 9" << std::endl;
 
@@ -1675,10 +1837,24 @@ int ENG_PERF_MEASURER::SendData(bool isTrace){
                     perror("ENG_PERF_MEASURER: shmdt: Energy");
                     exit(1);
                 }
+                ret = shmdt(pShmSMUtil);
+                if(ret < 0)
+                {
+                    perror("ENG_PERF_MEASURER: shmdt: SMUtil");
+                    exit(1);
+                }
+                ret = shmdt(pShmMemUtil);
+                if(ret < 0)
+                {
+                    perror("ENG_PERF_MEASURER: shmdt: MemUtil");
+                    exit(1);
+                }
 
                 //删除共享内存
                 shmctl(shmIDTime, IPC_RMID, NULL);
                 shmctl(shmIDPower, IPC_RMID, NULL);
+                shmctl(shmIDSMUtil, IPC_RMID, NULL);
+                shmctl(shmIDMemUtil, IPC_RMID, NULL);
 
                 // 下边创建进程间共享内存, 将 trace数据 拷贝到共享内存
                 shmTimeLen = tmpSampleCount * sizeof(double);
@@ -1691,6 +1867,18 @@ int ENG_PERF_MEASURER::SendData(bool isTrace){
                 shmIDPower = shmget(keyPower, shmPowerLen, IPC_CREAT|0666);    
                 if(shmIDPower < 0){
                     perror("ENG_PERF_MEASURER: shmget: Energy");
+                    exit(-1);
+                }
+                shmSMUtilLen = tmpSampleCount * sizeof(int);
+                shmIDSMUtil = shmget(keySMUtil, shmSMUtilLen, IPC_CREAT|0666);
+                if(shmIDSMUtil < 0){
+                    perror("ENG_PERF_MEASURER: shmget: SMUtil");
+                    exit(-1);
+                }
+                shmMemUtilLen = tmpSampleCount * sizeof(int);
+                shmIDMemUtil = shmget(keyMemUtil, shmMemUtilLen, IPC_CREAT|0666);
+                if(shmIDMemUtil < 0){
+                    perror("ENG_PERF_MEASURER: shmget: MemUtil");
                     exit(-1);
                 }
                 SharedBufLen = tmpSampleCount;
@@ -1706,6 +1894,16 @@ int ENG_PERF_MEASURER::SendData(bool isTrace){
                     perror("ENG_PERF_MEASURER: shmat: Energy");
                     _exit(-1);
                 }
+                pShmSMUtil = (int*)shmat(shmIDSMUtil, NULL, 0);
+                if(pShmSMUtil < 0){
+                    perror("ENG_PERF_MEASURER: shmat: SMUtil");
+                    _exit(-1);
+                }
+                pShmMemUtil = (int*)shmat(shmIDMemUtil, NULL, 0);
+                if(pShmMemUtil < 0){
+                    perror("ENG_PERF_MEASURER: shmat: MemUtil");
+                    _exit(-1);
+                }
             }
             
             // 加锁 测量数据缓冲
@@ -1713,6 +1911,8 @@ int ENG_PERF_MEASURER::SendData(bool isTrace){
             pthread_mutex_lock(&PowerMeasurer.lockData);
             memcpy(pShmTime, PowerMeasurer.vecTimeStampCpy.data(), tmpSampleCount * sizeof(double));
             memcpy(pShmPower, PowerMeasurer.vecPowerCpy.data(), tmpSampleCount * sizeof(float));
+            memcpy(pShmSMUtil, PowerMeasurer.vecSMUtilCpy.data(), tmpSampleCount * sizeof(int));
+            memcpy(pShmMemUtil, PowerMeasurer.vecMemUtilCpy.data(), tmpSampleCount * sizeof(int));
             pthread_mutex_unlock(&PowerMeasurer.lockData);
             // 解锁 测量数据缓冲
 
@@ -1824,7 +2024,7 @@ int ENG_PERF_MEASURER::InitInCode(int inDeviceIDCUDADrv, int inDeviceIDNVML, RUN
 
 int ENG_PERF_MEASURER::BeginInCode(){ // 仅仅用来测量需要插入源代码中
     mapMetricNameValue.clear();
-    mapMetricNameValue.insert({ { "Energy", (double)0.0 }, {"Time", (double)0.0} });
+    mapMetricNameValue.insert({ { "Energy", (double)0.0 }, {"Time", (double)0.1}, {"Power", (double)0.0}, {"SMUtil", (double)0.0}, {"MemUtil", (double)0.0} });
 
     if (isMeasurePerformace==true)
     {
@@ -1928,8 +2128,11 @@ int ENG_PERF_MEASURER::EndInCode(){ // 仅仅用来测量需要插入源代码�
     if (isMeasurePower==true)
     {
         PowerMeasurer.End();
-        mapMetricNameValue["Energy"] = PowerMeasurer.EnergyAT;
+        mapMetricNameValue["Energy"] = PowerMeasurer.Energy;
         mapMetricNameValue["Time"] = PowerMeasurer.ActualDuration;
+        mapMetricNameValue["Power"] = PowerMeasurer.avgPower;
+        mapMetricNameValue["SMUtil"] = PowerMeasurer.avgSMUtil;
+        mapMetricNameValue["MemUtil"] = PowerMeasurer.avgMemUtil;
     }
 
     if (isMeasurePerformace==true)
@@ -2006,12 +2209,26 @@ ENG_PERF_MEASURER::~ENG_PERF_MEASURER(){
         perror("ENG_PERF_MEASURER: shmdt: Energy");
         exit(1);
     }
+    ret = shmdt(pShmSMUtil);
+    if(ret < 0)
+    {
+        perror("ENG_PERF_MEASURER: shmdt: SMUtil");
+        exit(1);
+    }
+    ret = shmdt(pShmMemUtil);
+    if(ret < 0)
+    {
+        perror("ENG_PERF_MEASURER: shmdt: MemUtil");
+        exit(1);
+    }
 
     // std::cout << "ENG_PERF_MEASURER::~ENG_PERF_MEASURER(): 1" << std::endl;
 
     //删除共享内存
     shmctl(shmIDTime, IPC_RMID, NULL);
     shmctl(shmIDPower, IPC_RMID, NULL);
+    shmctl(shmIDSMUtil, IPC_RMID, NULL);
+    shmctl(shmIDMemUtil, IPC_RMID, NULL);
 
     std::cout << "ENG_PERF_MEASURER::~ENG_PERF_MEASURER(): 2" << std::endl;
 }

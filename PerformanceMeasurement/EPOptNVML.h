@@ -2,7 +2,7 @@
 Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: EPOptNVML.h
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20210719
   Description: 1. 为了降低开销, NVML不用时就立刻关闭; EPOPT_NVML类中加入使用计数,
                 当使用计数为0, 就关闭, 否则认为还在使用

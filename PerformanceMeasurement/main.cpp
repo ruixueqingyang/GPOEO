@@ -1,17 +1,14 @@
 /*******************************************************************************
-Copyright(C), 2020-2020, 瑞雪轻飏
+Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: main.cpp
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20200504
   Description: 性能/能耗测量工具的主/入口 cpp 文件, 包含 main 函数
        Others: 
 *******************************************************************************/
 
 #include "main.h"
-
-// PerformanceMeasurement.bin -h
-// PerformanceMeasurement.bin
 
 CONFIG Config;
 PERF_DATA PerfData;
@@ -695,8 +692,9 @@ void AlarmSampler(int signum){
             std::vector<double>::iterator iterAppStampEnergy = PerfData.vecAppStampEnergy.end();
 
             float EnergyAbove = PerfData.Energy/1000 - Config.PowerThreshold*PerfData.TotalDuration;
+            float Energy = PerfData.Energy/1000;
             PerfData.vecAppStamp.insert(iterAppStamp, NumStamps, PerfData.TotalDuration);
-            PerfData.vecAppStampEnergy.insert(iterAppStampEnergy, NumStamps, EnergyAbove);
+            PerfData.vecAppStampEnergy.insert(iterAppStampEnergy, NumStamps, Energy);
             std::cout << "INFO: save " << NumStamps << " time stamp" << std::endl;
         }
         pthread_mutex_unlock(&lockMsgHandlerSource);

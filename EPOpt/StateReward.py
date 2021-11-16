@@ -4,33 +4,33 @@
 # wfr 20210601
 import importlib, sys
 importlib.reload(sys)
-# sys.setdefaultencoding('utf8')
 
 # wfr 20201109
-# import pandas as pd
-import math
+import sys
 import numpy as np
 import os
 import copy
 
 # wfr 20210708 judge A is better than B or not
-def IsBetter(Rewaed_A, Rewaed_B, Constraint_A=-1.0, Constraint_B=-1.0, ConstraintDefault=-1.0, Obj="ED2P", threshold=0.05):
+def IsBetter(Rewaed_A, Rewaed_B, Constraint_A=-1.0, Constraint_B=-1.0, Obj="ED2P", threshold=0.05):
     
     flag = False
-
+    # ConstraintDefault = 1.0 # wfr 20211021 以 NVIDIA 驱动默认策略为基准, 即 1.0
     if Obj == "EDP" or Obj == "ED2P":
         if Rewaed_A < Rewaed_B:
             flag = True
 
     elif Obj == "Energy": # within performance loss contraint and optimize energy
-        Thres_A = (Constraint_A-ConstraintDefault)/ConstraintDefault
-        Thres_B = (Constraint_B-ConstraintDefault)/ConstraintDefault
+        # Thres_A = (Constraint_A-ConstraintDefault)/ConstraintDefault
+        # Thres_B = (Constraint_B-ConstraintDefault)/ConstraintDefault
+        Thres_A = Constraint_A
+        Thres_B = Constraint_B
         
         # 都满足约束时, 能耗低的更好
         if Thres_A <= threshold and Thres_B <= threshold and Rewaed_A < Rewaed_B:
             flag = True
 
-        # 都不满足约束时, 更接近约束的更好
+        # 都不满足约束时, 更接近约束的更好(运行时间开销小的更好)
         elif Thres_A > threshold and Thres_B > threshold and Thres_A < Thres_B:
             flag = True
 
@@ -39,14 +39,16 @@ def IsBetter(Rewaed_A, Rewaed_B, Constraint_A=-1.0, Constraint_B=-1.0, Constrain
             flag = True
 
     elif Obj == "Performance": # over energy save contraint and optimize Performance
-        Thres_A = (ConstraintDefault-Constraint_A)/ConstraintDefault
-        Thres_B = (ConstraintDefault-Constraint_B)/ConstraintDefault
+        # Thres_A = (ConstraintDefault-Constraint_A)/ConstraintDefault
+        # Thres_B = (ConstraintDefault-Constraint_B)/ConstraintDefault
+        Thres_A = Constraint_A
+        Thres_B = Constraint_B
         
         # 都满足约束时, 运行时间短的更好
         if Thres_A >= threshold and Thres_B >= threshold and Rewaed_A < Rewaed_B:
             flag = True
         
-        # 都不满足约束时, 更接近约束的更好
+        # 都不满足约束时, 更接近约束的更好(更节能的更好)
         elif Thres_A < threshold and Thres_B < threshold and Thres_A > Thres_B:
             flag = True
         
@@ -56,35 +58,53 @@ def IsBetter(Rewaed_A, Rewaed_B, Constraint_A=-1.0, Constraint_B=-1.0, Constrain
 
     return flag
 
-def SelectOptGear(arrayGear, arrayReward, arrayConstraint=[], ConstraintRef=-1.0, Obj="ED2P", threshold=0.05):
+def SelectOptGear(arrayGear, arrayReward, arrayConstraint=[], Obj="ED2P", threshold=0.05):
+
+    # ConstraintRef = 1 # wfr 20211021 以 NVIDIA 驱动默认策略为基准, 即 1.0
     OptGear = 70
+    arrayGearMeet = np.array([])
+    arrayRewardMeet = np.array([])
     if Obj == "EDP" or Obj == "ED2P":
-        tmpIndex = np.argwhere(np.min(arrayReward) == arrayReward).flatten()[0]
+        tmpIndex = np.argmin(arrayReward)
         OptGear = arrayGear[tmpIndex]
 
     elif Obj == "Energy":
-        arrayPerfLoss = (arrayConstraint - ConstraintRef) / ConstraintRef
+        # arrayPerfLoss = (arrayConstraint - ConstraintRef) / ConstraintRef
+        arrayPerfLoss = arrayConstraint
         tmpIndex = np.argwhere(arrayPerfLoss <= threshold).flatten()
         # wfr 20210708 如果不能满足约束, 则找到最接近约束的
         if len(tmpIndex) <= 0:
-            tmpIndex = np.argwhere(np.min(arrayPerfLoss) == arrayPerfLoss).flatten()
+            # tmpIndex = np.argmin(arrayPerfLoss)
+            # OptGear = arrayGear[tmpIndex]
+            OptGear = np.max(arrayGear)
+        else:
+            arrayGearMeet = arrayGear[tmpIndex]
+            arrayRewardMeet = arrayReward[tmpIndex]
+            tmpIndex = np.argmin(arrayRewardMeet)
+            OptGear = arrayGearMeet[tmpIndex]
 
-        arrayGearMeet = arrayGear[tmpIndex]
-        arrayRewardMeet = arrayReward[tmpIndex]
-        tmpIndex = np.argwhere(np.min(arrayRewardMeet) == arrayRewardMeet).flatten()[0]
-        OptGear = arrayGearMeet[tmpIndex]
-
-    elif Obj == "Time":
-        arrayEngSave = (ConstraintRef - arrayConstraint) / ConstraintRef
+    elif Obj == "Performance":
+        # arrayEngSave = (ConstraintRef - arrayConstraint) / ConstraintRef
+        arrayEngSave = arrayConstraint
         tmpIndex = np.argwhere(arrayEngSave >= threshold).flatten()
         # wfr 20210708 如果不能满足约束, 则找到最接近约束的
         if len(tmpIndex) <= 0:
-            tmpIndex = np.argwhere(np.max(arrayEngSave) == arrayEngSave).flatten()
+            tmpIndex = np.argmax(arrayEngSave).flatten()
+            OptGear = arrayGear[tmpIndex]
+        else:
+            arrayGearMeet = arrayGear[tmpIndex]
+            arrayRewardMeet = arrayReward[tmpIndex]
+            tmpIndex = np.argmin(arrayRewardMeet)
+            OptGear = arrayGearMeet[tmpIndex]
 
-        arrayGearMeet = arrayGear[tmpIndex]
-        arrayRewardMeet = arrayReward[tmpIndex]
-        tmpIndex = np.argwhere(np.min(arrayRewardMeet) == arrayRewardMeet).flatten()[0]
-        OptGear = arrayGearMeet[tmpIndex]
+    print("SelectOptGear: arrayGear = {}".format(arrayGear))
+    print("SelectOptGear: arrayReward = {}".format(arrayReward))
+    print("SelectOptGear: arrayConstraint = {}".format(arrayConstraint))
+    print("SelectOptGear: arrayRewardMeet = {}".format(arrayRewardMeet))
+    print("SelectOptGear: arrayGearMeet = {}".format(arrayGearMeet))
+    print("SelectOptGear: tmpIndex = {}".format(tmpIndex))
+    print("SelectOptGear: OptGear = {}".format(OptGear))
+    sys.stdout.flush()
 
     return int(OptGear)
 
@@ -136,6 +156,13 @@ def SetMetric(isMeasure, GPUName):
     listMetricIPS = []
     listMetricIPS.append("sm__inst_executed.sum")
     listMetricIPS.append("sm__inst_executed.sum.per_second")
+    listMetricIPS.append("sm__cycles_active.avg")
+    listMetricIPS.append("sm__cycles_elapsed.avg")
+    # listMetricIPS.append("sm__inst_executed_pipe_cbu.sum.per_second")
+    # listMetricIPS.append("sm__inst_executed_pipe_cbu_pred_off_all.sum.per_second")
+    # listMetricIPS.append("sm__inst_executed_pipe_cbu_pred_on_any.sum.per_second")
+    # listMetricIPS.append("sm__inst_executed_pipe_alu.sum.per_second")
+    # listMetricIPS.append("sm__inst_executed_pipe_lsu.sum.per_second")
     # listMetricIPS.append("sm__thread_inst_executed_pred_on_realtime.sum")
     # listMetricIPS.append("sm__thread_inst_executed_pred_on_realtime.sum.per_second")
     # listMetricIPS.append("smsp__thread_inst_executed_pred_on.sum")
@@ -200,76 +227,100 @@ def SetMetric(isMeasure, GPUName):
     # print(listMetricGroup)
     return listMetricGroup, listMetricIPS
 
-def GetAvgFeature(dictFeature, TCount):
-
-    dictFeature["Energy"] = dictFeature["Energy"] / TCount
-    dictFeature["Time"] = dictFeature["Time"] / TCount
-    if len(dictFeature) > 2:
-        dictFeature["sm__inst_executed.sum"] = dictFeature["sm__inst_executed.sum"] / TCount
-        dictFeature["lts__t_requests.sum"] = dictFeature["lts__t_requests.sum"] / TCount
-        dictFeature["sm__cycles_active.avg"] = dictFeature["sm__cycles_active.avg"] / TCount
-        dictFeature["gpu__cycles_active.avg"] = dictFeature["gpu__cycles_active.avg"] / TCount
-
-    return dictFeature
-
-def GetState(dictFeature):
-
-    IPCPercentScale = 1.2
-    CacheMissPerInstScale = 2.5 * 100 # CacheMissPerInst 的调节系数
-    # 10 * 10
-
-    IPCPercent = dictFeature["sm__inst_executed.sum.pct_of_peak_sustained_active"] * IPCPercentScale
-    if np.abs(IPCPercent) < 1e-12:
-        CacheMissPerInst = 0
-    else:
-        CacheMissPerInst = (1 - dictFeature["lts__t_request_hit_rate.pct"]/100) * dictFeature["lts__t_requests.sum"] / dictFeature["sm__inst_executed.sum"] * CacheMissPerInstScale # 乘调节系数
-
-    if np.abs(dictFeature["gpu__cycles_active.avg"]) < 1e-12:
-        SMActiveCyclePercent = 0
-    else:
-        SMActiveCyclePercent = dictFeature["sm__cycles_active.avg"] / dictFeature["gpu__cycles_active.avg"] * 100
-
-    if IPCPercent >= 100:
-        print("IPCPercent = {:.2f}".format(IPCPercent))
-        IPCPercent = 99.9
-        print("Set IPCPercent = 99.9")
-    if CacheMissPerInst >= 100:
-        print("CacheMissPerInst = {:.2f}".format(CacheMissPerInst))
-        CacheMissPerInst = 99.9
-        print("Set CacheMissPerInst = 99.9")
-    if SMActiveCyclePercent >= 100:
-        print("SMActiveCyclePercent = {:.2f}".format(SMActiveCyclePercent))
-        SMActiveCyclePercent = 99.9
-        print("Set SMActiveCyclePercent = 99.9")
-
-    State = np.array([IPCPercent, CacheMissPerInst, SMActiveCyclePercent])
-
-    return State
-
-def GetArrayReward(arrayEnergy, arrayTime, Obj="ED2P"):
-    arrayConstraint = []
+def GetArrayReward(arrayEnergy, arrayTime, Obj="ED2P", ConstraintDefault=1.0):
+    arrayConstraint = np.array([])
     if Obj == "EDP":
         arrayReward = arrayEnergy * arrayTime
     elif Obj == "ED2P":
         arrayReward = arrayEnergy * arrayTime * arrayTime
     elif Obj == "Energy":
-        arrayReward = arrayEnergy
-        arrayConstraint = arrayTime
+        # arrayReward = arrayEnergy
+        arrayReward = arrayEnergy * arrayTime * arrayTime
+        arrayConstraint = (arrayTime - ConstraintDefault) / ConstraintDefault
     elif Obj == "Performance":
         arrayReward = arrayTime
-        arrayConstraint = arrayEnergy
+        arrayConstraint = (ConstraintDefault - arrayEnergy) / ConstraintDefault
     else:
         arrayReward = arrayEnergy * arrayTime * arrayTime
 
+    print("GetArrayReward: arrayEnergy = {}".format(arrayEnergy))
+    print("GetArrayReward: arrayTime = {}".format(arrayTime))
+    print("GetArrayReward: Obj = {}".format(Obj))
+    print("GetArrayReward: ConstraintDefault = {}".format(ConstraintDefault))
+    print("GetArrayReward: arrayReward = {}".format(arrayReward))
+    print("GetArrayReward: arrayConstraint = {}".format(arrayConstraint))
+    sys.stdout.flush()
+
     return arrayReward, arrayConstraint
 
-def GetReward(dictFeature, Obj="ED2P", isStateStable=True):
+# wfr 20211030 周期不稳定时
+def GetArrayRewardIPS(arrayEnergy, arrayTime, arrayIPS, arrayInst, Obj, ConstraintDefault=1.0):
+    arrayIPS[arrayIPS<1e-9] = 1e12
+    arrayInst[arrayInst<1e-9] = arrayInst[arrayInst<1e-9] * arrayTime[arrayInst<1e-9]
+
+    Constraint = -1.0 * np.ones(len(arrayEnergy))
+    if Obj == "EDP":
+        IPSScale = 1e10 # IPS 的调节系数
+        PowerScale = 1
+        RewardScale = 1
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Reward = RewardScale / ( (IPSActive / IPSScale)**2 / ( (arrayEnergy / arrayTime) * PowerScale ) )
+    elif Obj == "ED2P":
+        IPSScale = 1e10 # IPS 的调节系数
+        PowerScale = 1
+        RewardScale = 10
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Reward = RewardScale / ( (IPSActive / IPSScale)**3 / ( (arrayEnergy / arrayTime) * PowerScale ) )
+    elif Obj == "Energy":
+
+        IPSScale = 1e10 # IPS 的调节系数
+        PowerScale = 1
+        RewardScale = 10
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Reward = RewardScale / ( (IPSActive / IPSScale)**3 / ( (arrayEnergy / arrayTime) * PowerScale ) )
+
+        NumInst = 1e13
+        # Reward = NumInst * arrayEnergy / arrayInst
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Constraint = ((NumInst / IPSActive) - ConstraintDefault) / ConstraintDefault
+    elif Obj == "Performance":
+        NumInst = 1e13
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Reward = NumInst / IPSActive
+        Constraint = (ConstraintDefault - (NumInst * arrayEnergy / arrayInst)) / ConstraintDefault
+    else:
+        IPSScale = 1e10 # IPS 的调节系数
+        PowerScale = 1
+        RewardScale = 10
+        # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+        IPSActive = arrayIPS
+        Reward = RewardScale / ( (IPSActive / IPSScale)**3 / ( (arrayEnergy / arrayTime) * PowerScale ) )
+
+    print("GetArrayRewardIPS: arrayEnergy = {}".format(arrayEnergy))
+    print("GetArrayRewardIPS: arrayTime = {}".format(arrayTime))
+    print("GetArrayRewardIPS: Obj = {}".format(Obj))
+    print("GetArrayRewardIPS: ConstraintDefault = {}".format(ConstraintDefault))
+    print("GetArrayRewardIPS: Reward = {}".format(Reward))
+    print("GetArrayRewardIPS: Constraint = {}".format(Constraint))
+    sys.stdout.flush()
+
+    return Reward, Constraint
+
+def GetReward(dictFeature, Obj="ED2P", isStateStable=True, ConstraintDefault=1.0):
 
     # wfr 20210818 modify 0 value
     if "sm__inst_executed.sum.per_second" in dictFeature.keys() and dictFeature["sm__inst_executed.sum.per_second"] < 1e-9:
         dictFeature["sm__inst_executed.sum.per_second"] = 1e12
     if "sm__inst_executed.sum" in dictFeature.keys() and dictFeature["sm__inst_executed.sum"] < 1e-9:
         dictFeature["sm__inst_executed.sum"] = dictFeature["sm__inst_executed.sum.per_second"] * dictFeature["Time"]
+
+    # dictFeature["Power"] = dictFeature["Power"] - PowerThreshold
+    # dictFeature["Energy"] = dictFeature["Power"] * dictFeature["Time"]
 
     Constraint = -1.0
     if Obj == "EDP":
@@ -279,7 +330,9 @@ def GetReward(dictFeature, Obj="ED2P", isStateStable=True):
             IPSScale = 1e10 # IPS 的调节系数
             PowerScale = 1
             RewardScale = 1
-            Reward = RewardScale / (pow( (dictFeature["sm__inst_executed.sum.per_second"] / IPSScale), 2 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ))
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Reward = RewardScale / ( pow( IPSActive / IPSScale, 2 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ) )
 
     elif Obj == "ED2P":
         if isStateStable == True:
@@ -288,25 +341,39 @@ def GetReward(dictFeature, Obj="ED2P", isStateStable=True):
             IPSScale = 1e10 # IPS 的调节系数
             PowerScale = 1
             RewardScale = 10
-            Reward = RewardScale / (pow( (dictFeature["sm__inst_executed.sum.per_second"] / IPSScale), 3 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ))
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Reward = RewardScale / ( pow( IPSActive / IPSScale, 3 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ) )
 
     elif Obj == "Energy":
         if isStateStable == True:
-            Reward = dictFeature["Energy"]
-            Constraint = dictFeature["Time"]
+            # Reward = dictFeature["Energy"]
+            Reward = dictFeature["Energy"] * dictFeature["Time"] * dictFeature["Time"]
+            Constraint = (dictFeature["Time"] - ConstraintDefault) / ConstraintDefault
         else:
-            NumInst = 1e13
-            Reward = NumInst * dictFeature["Energy"] / dictFeature["sm__inst_executed.sum"]
-            Constraint = NumInst / dictFeature["sm__inst_executed.sum.per_second"]
+            IPSScale = 1e10 # IPS 的调节系数
+            PowerScale = 1
+            RewardScale = 10
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Reward = RewardScale / ( pow( IPSActive / IPSScale, 3 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ) )
 
-    elif Obj == "Time":
+            NumInst = 1e13
+            # Reward = NumInst * dictFeature["Energy"] / dictFeature["sm__inst_executed.sum"]
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Constraint = ((NumInst / IPSActive) - ConstraintDefault) / ConstraintDefault
+
+    elif Obj == "Performance":
         if isStateStable == True:
             Reward = dictFeature["Time"]
-            Constraint = dictFeature["Energy"]
+            Constraint = (ConstraintDefault - dictFeature["Energy"]) / ConstraintDefault
         else:
             NumInst = 1e13
-            Reward = NumInst / dictFeature["sm__inst_executed.sum.per_second"]
-            Constraint = NumInst * dictFeature["Energy"] / dictFeature["sm__inst_executed.sum"]
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Reward = NumInst / IPSActive
+            Constraint = (ConstraintDefault - (NumInst * dictFeature["Energy"] / dictFeature["sm__inst_executed.sum"])) / ConstraintDefault
 
     else:
         if isStateStable == True:
@@ -315,6 +382,14 @@ def GetReward(dictFeature, Obj="ED2P", isStateStable=True):
             IPSScale = 1e10 # IPS 的调节系数
             PowerScale = 1
             RewardScale = 10
-            Reward = RewardScale / (pow( (dictFeature["sm__inst_executed.sum.per_second"] / IPSScale), 3 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ))
+            # IPSActive = dictFeature["sm__inst_executed.sum.per_second"] / (dictFeature["sm__cycles_active.avg"]/dictFeature["sm__cycles_elapsed.avg"])
+            IPSActive = dictFeature["sm__inst_executed.sum.per_second"]
+            Reward = RewardScale / ( pow( IPSActive / IPSScale, 3 ) / ( (dictFeature["Energy"] / dictFeature["Time"]) * PowerScale ) )
     
+    print("GetReward: Obj = {}".format(Obj))
+    print("GetReward: ConstraintDefault = {}".format(ConstraintDefault))
+    print("GetReward: Reward = {}".format(Reward))
+    print("GetReward: Constraint = {}".format(Constraint))
+    sys.stdout.flush()
+
     return Reward, Constraint

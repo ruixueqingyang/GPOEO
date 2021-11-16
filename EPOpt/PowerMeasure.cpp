@@ -1,4 +1,3 @@
-
 /*******************************************************************************
 Copyright(C), 2020-2020, 瑞雪轻飏
      FileName: PowerMeasurer.cpp
@@ -32,12 +31,22 @@ static void Sampler(int signum){
     unsigned int tmpPower;
     PowerMeasurer.nvmlResult = nvmlDeviceGetPowerUsage(PowerMeasurer.nvmlDevice, &tmpPower);
     if (NVML_SUCCESS != PowerMeasurer.nvmlResult) {
-        printf("Failed to get power usage: %s\n", nvmlErrorString(PowerMeasurer.nvmlResult));
+        printf("ENG_PERF_MANAGER Sampler: Failed to get power usage: %s\n", nvmlErrorString(PowerMeasurer.nvmlResult));
         // exit(-1);
-        PowerMeasurer.currPower = 0;
+        // PowerMeasurer.currPower = 0;
+    }else {
+        PowerMeasurer.currPower = (float)tmpPower / 1000;
     }
-    PowerMeasurer.currPower = (float)tmpPower / 1000;
-    
+
+    // wfr 20210907 get util
+    nvmlUtilization_t currUtil;
+    PowerMeasurer.nvmlResult = nvmlDeviceGetUtilizationRates(PowerMeasurer.nvmlDevice, &currUtil);
+    if (NVML_SUCCESS != PowerMeasurer.nvmlResult) {
+        printf("ENG_PERF_MANAGER Sampler: Failed to get utilization rate: %s\n", nvmlErrorString(PowerMeasurer.nvmlResult));
+    }else {
+        PowerMeasurer.currSMUtil = currUtil.gpu;
+        PowerMeasurer.currMemUtil = currUtil.memory;
+    }
 
     // update min/max and push data
     if(PowerMeasurer.currPower < PowerMeasurer.minPower){
@@ -64,19 +73,28 @@ static void Sampler(int signum){
         PowerMeasurer.ActualDuration = RelativeTimeStamp;
         
         PowerMeasurer.Energy += (float)(PowerMeasurer.prevPower + PowerMeasurer.currPower) / 2 * ActualInterval;
+        PowerMeasurer.sumSMUtil += (float)(PowerMeasurer.prevSMUtil + PowerMeasurer.currSMUtil) / 2 * ActualInterval;
+        PowerMeasurer.sumMemUtil += (float)(PowerMeasurer.prevMemUtil + PowerMeasurer.currMemUtil) / 2 * ActualInterval;
     }
 
     // wfr 20201221
-    PowerMeasurer.vecPower.push_back(PowerMeasurer.currPower);
     PowerMeasurer.vecTimeStamp.push_back(RelativeTimeStamp);
+    PowerMeasurer.vecPower.push_back(PowerMeasurer.currPower);
+    PowerMeasurer.vecSMUtil.push_back(PowerMeasurer.currSMUtil);
+    PowerMeasurer.vecMemUtil.push_back(PowerMeasurer.currMemUtil);
+    
 
     // wfr 20201221 如果可以获得锁, 就同步 采样数据数组的副本, 本次不能获得锁, 则等以后再同步
     if (0 == pthread_mutex_trylock(&PowerMeasurer.lockData))
     {
         // 将 Cpy vector 与 vector 同步
+        PowerMeasurer.vecTimeStampCpy.insert(PowerMeasurer.vecTimeStampCpy.end(), PowerMeasurer.vecTimeStamp.begin()+PowerMeasurer.vecTimeStampCpy.size(), PowerMeasurer.vecTimeStamp.end());
+
         PowerMeasurer.vecPowerCpy.insert(PowerMeasurer.vecPowerCpy.end(), PowerMeasurer.vecPower.begin()+PowerMeasurer.vecPowerCpy.size(), PowerMeasurer.vecPower.end());
 
-        PowerMeasurer.vecTimeStampCpy.insert(PowerMeasurer.vecTimeStampCpy.end(), PowerMeasurer.vecTimeStamp.begin()+PowerMeasurer.vecTimeStampCpy.size(), PowerMeasurer.vecTimeStamp.end());
+        PowerMeasurer.vecSMUtilCpy.insert(PowerMeasurer.vecSMUtilCpy.end(), PowerMeasurer.vecSMUtil.begin()+PowerMeasurer.vecSMUtilCpy.size(), PowerMeasurer.vecSMUtil.end());
+
+        PowerMeasurer.vecMemUtilCpy.insert(PowerMeasurer.vecMemUtilCpy.end(), PowerMeasurer.vecMemUtil.begin()+PowerMeasurer.vecMemUtilCpy.size(), PowerMeasurer.vecMemUtil.end());
 
         pthread_mutex_unlock(&PowerMeasurer.lockData);
     }
@@ -86,6 +104,8 @@ static void Sampler(int signum){
     PowerMeasurer.prevTimeStamp.tv_sec = PowerMeasurer.currTimeStamp.tv_sec;
     PowerMeasurer.prevTimeStamp.tv_usec = PowerMeasurer.currTimeStamp.tv_usec;
     PowerMeasurer.prevPower = PowerMeasurer.currPower;
+    PowerMeasurer.prevSMUtil = PowerMeasurer.currSMUtil;
+    PowerMeasurer.prevMemUtil = PowerMeasurer.currMemUtil;
 
     // update SampleCount
     PowerMeasurer.SampleCount++;
@@ -123,7 +143,7 @@ int POWER_MEASURE::Begin(bool inIsRecordTrace){
     tick.it_interval.tv_sec = 0;
     tick.it_interval.tv_usec = SampleInterval*1000;
 
-    if(setitimer(ITIMER_REAL, &tick, NULL) < 0){ // stsrt sampling timer
+    if(setitimer(ITIMER_REAL, &tick, NULL) < 0){ // start sampling timer
         std::cout << "Set timer failed!" << std::endl;
     }else{
         // std::cout << "PowerMeasure: SampleInterval = " << SampleInterval << std::endl;
@@ -163,7 +183,12 @@ int POWER_MEASURE::End(){
     // std::cout << "POWER_MEASURE::End: ActualDuration = " << ActualDuration << std::endl;
 
     avgPower = Energy / ActualDuration;
-    EnergyAT = Energy - PowerThreshold*ActualDuration;
+    avgPowerAT = avgPower - PowerThreshold;
+    EnergyAT = Energy - PowerThreshold * ActualDuration;
+    avgSMUtil = sumSMUtil / ActualDuration;
+    avgMemUtil = sumMemUtil / ActualDuration;
+
+    // TODO: avgSM
 
     // std::cout << "POWER_MEASURE::End: SampleCount = " << SampleCount << std::endl;
 
@@ -182,12 +207,23 @@ int POWER_MEASURE::Init(EPOPT_NVML* inpNVML){
 
     vecTimeStamp.clear();
     vecTimeStamp.reserve(VECTOR_RESERVE);
-    vecPower.clear();
-    vecPower.reserve(VECTOR_RESERVE);
     vecTimeStampCpy.clear();
     vecTimeStampCpy.reserve(VECTOR_RESERVE);
+
+    vecPower.clear();
+    vecPower.reserve(VECTOR_RESERVE);
     vecPowerCpy.clear();
     vecPowerCpy.reserve(VECTOR_RESERVE);
+
+    vecSMUtil.clear();
+    vecSMUtil.reserve(VECTOR_RESERVE);
+    vecSMUtilCpy.clear();
+    vecSMUtilCpy.reserve(VECTOR_RESERVE);
+
+    vecMemUtil.clear();
+    vecMemUtil.reserve(VECTOR_RESERVE);
+    vecMemUtilCpy.clear();
+    vecMemUtilCpy.reserve(VECTOR_RESERVE);
 
     pthread_mutex_init(&lockData, NULL);
     pthread_mutex_unlock(&lockData);
@@ -200,6 +236,8 @@ int POWER_MEASURE::Init(EPOPT_NVML* inpNVML){
     ActualDuration = 0.0;
     StartTimeStamp = 0.0;
     minPower = 1e9; maxPower = 0.0; avgPower = 0.0; Energy = 0.0; EnergyAT = 0.0;
+    sumSMUtil = 0; sumMemUtil = 0;
+
 
     prevTimeStamp.tv_sec = 0;
     prevTimeStamp.tv_usec = 0;
@@ -236,6 +274,7 @@ int POWER_MEASURE::Reset(){
     ActualDuration = 0.0;
     StartTimeStamp = 0.0;
     minPower = 1e9; maxPower = 0.0; avgPower = 0.0; Energy = 0.0; EnergyAT = 0.0;
+    sumSMUtil = 0; sumMemUtil = 0;
     prevTimeStamp.tv_sec = 0;
     prevTimeStamp.tv_usec = 0;
 
@@ -243,6 +282,10 @@ int POWER_MEASURE::Reset(){
     vecTimeStampCpy.clear();
     vecPower.clear();
     vecPowerCpy.clear();
+    vecSMUtil.clear();
+    vecSMUtilCpy.clear();
+    vecMemUtil.clear();
+    vecMemUtilCpy.clear();
 
     outStream.close();
 

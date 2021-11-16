@@ -21,6 +21,9 @@ class EP_OPT_XGBOOST():
         self.TimeModel1 = xgb.XGBRegressor()
         self.TimeModel2 = xgb.XGBRegressor()
 
+        self.EnergyMemModel = xgb.XGBRegressor()
+        self.TimeMemModel = xgb.XGBRegressor()
+
     def Init(self, XGBModelFolderDir, GPUName):
         
         # tmpDir = os.path.join(XGBModelFolderDir, "EnergyModel0.json")
@@ -33,26 +36,50 @@ class EP_OPT_XGBOOST():
         self.TimeModel1.load_model(os.path.join(XGBModelFolderDir, "TimeModel1-"+GPUName+".json"))
         self.TimeModel2.load_model(os.path.join(XGBModelFolderDir, "TimeModel2-"+GPUName+".json"))
 
+        self.EnergyMemModel.load_model(os.path.join(XGBModelFolderDir, "EnergyMemModel-"+GPUName+".json"))
+        self.TimeMemModel.load_model(os.path.join(XGBModelFolderDir, "TimeMemModel-"+GPUName+".json"))
+
         return
 
-    def Predict(self, dictFeature, arrayClock, ClockBase):
+    def Predict(self, dictFeature, arrayClock, ClockBase, arrayMemClk, MemClkBase):
 
         # print("dictFeature: \n{}".format(dictFeature))
         # print("arrayClock: \n{}".format(arrayClock))
         # print("ClockBase = {}".format(ClockBase))
 
         tmpTime = dictFeature["Time"]
-        del dictFeature["Energy"]
-        del dictFeature["Time"]
-        
+
+        tmpKey = "Energy"
+        if tmpKey in dictFeature.keys():
+            del dictFeature[tmpKey]
+        tmpKey = "Time"
+        if tmpKey in dictFeature.keys():
+            del dictFeature[tmpKey]
+        tmpKey = "Power"
+        if tmpKey in dictFeature.keys():
+            del dictFeature[tmpKey]
+        tmpKey = "SMUtil"
+        if tmpKey in dictFeature.keys():
+            del dictFeature[tmpKey]
+        tmpKey = "MemUtil"
+        if tmpKey in dictFeature.keys():
+            del dictFeature[tmpKey]
+
         # wfr 20210818 modify 0 value
-        if "sm__inst_executed.sum.per_second" in dictFeature.keys() and dictFeature["sm__inst_executed.sum.per_second"] < 1e-9:
-            dictFeature["sm__inst_executed.sum.per_second"] = 1e3
-        if "sm__inst_executed.sum" in dictFeature.keys() and dictFeature["sm__inst_executed.sum"] < 1e-9:
-            dictFeature["sm__inst_executed.sum"] = dictFeature["sm__inst_executed.sum.per_second"] * tmpTime
-        if "l1tex__t_sectors_lookup_miss.sum" in dictFeature.keys() and dictFeature["l1tex__t_sectors_lookup_miss.sum"] + dictFeature["l1tex__t_sectors_lookup_hit.sum"] < 1e-9:
+        tmpKey = "sm__inst_executed.sum.per_second"
+        if tmpKey in dictFeature.keys() and dictFeature[tmpKey] < 1e-9:
+            dictFeature[tmpKey] = 1e3
+        
+        tmpKey = "sm__inst_executed.sum"
+        if tmpKey in dictFeature.keys() and dictFeature[tmpKey] < 1e-9:
+            dictFeature[tmpKey] = dictFeature["sm__inst_executed.sum.per_second"] * tmpTime
+        
+        tmpKey = "l1tex__t_sectors_lookup_hit.sum"
+        if tmpKey in dictFeature.keys() and dictFeature[tmpKey] + dictFeature["l1tex__t_sectors_lookup_miss.sum"] < 1e-9:
             dictFeature["l1tex__t_sectors_lookup_hit.sum"] = 1
-        if "lts__t_sectors_lookup_miss.sum" in dictFeature.keys() and dictFeature["lts__t_sectors_lookup_miss.sum"] + dictFeature["lts__t_sectors_lookup_hit.sum"] < 1e-9:
+        
+        tmpKey = "lts__t_sectors_lookup_hit.sum"
+        if tmpKey in dictFeature.keys() and dictFeature[tmpKey] + dictFeature["lts__t_sectors_lookup_miss.sum"] < 1e-9:
             dictFeature["lts__t_sectors_lookup_hit.sum"] = 1
 
         tmpDict = {}
@@ -61,7 +88,7 @@ class EP_OPT_XGBOOST():
         tmpDict["L1MissPct"] = 0.0
         tmpDict["L2MissPerInst"] = 0.0
         tmpDict["L2MissPct"] = 0.0
-        tmpDict["SMActCycPct"] = 0.0
+        # tmpDict["SMActCycPct"] = 0.0 # wfr 20211026
         dictMetric = {**tmpDict, **dictFeature}
 
         IPCPercentSacle = 1.2
@@ -86,10 +113,15 @@ class EP_OPT_XGBOOST():
             else:
                 L2MissPct = dictMetric["lts__t_sectors_lookup_miss.sum"] / (dictMetric["lts__t_sectors_lookup_miss.sum"] + dictMetric["lts__t_sectors_lookup_hit.sum"])
 
-        if np.abs(dictMetric["gpu__cycles_active.avg"]) < 1e-12:
+        # if np.abs(dictMetric["gpu__cycles_active.avg"]) < 1e-12:
+        #     SMActiveCyclePercent = 0
+        # else:
+        #     SMActiveCyclePercent = dictMetric["sm__cycles_active.avg"] / dictMetric["gpu__cycles_active.avg"] * 100
+
+        if np.abs(dictMetric["sm__cycles_elapsed.avg"]) < 1e-12:
             SMActiveCyclePercent = 0
         else:
-            SMActiveCyclePercent = dictMetric["sm__cycles_active.avg"] / dictMetric["gpu__cycles_active.avg"] * 100
+            SMActiveCyclePercent = dictMetric["sm__cycles_active.avg"] / dictMetric["sm__cycles_elapsed.avg"] * 100
 
         if IPCPercent >= 100:
             # print("IPCPercent = {:.2f}".format(IPCPercent))
@@ -118,11 +150,13 @@ class EP_OPT_XGBOOST():
         dictMetric["L1MissPct"] = L1MissPct
         dictMetric["L2MissPerInst"] = L2CacheMissPerInst
         dictMetric["L2MissPct"] = L2MissPct
-        dictMetric["SMActCycPct"] = SMActiveCyclePercent
+        # dictMetric["SMActCycPct"] = SMActiveCyclePercent # wfr 20211026
 
+        del dictMetric["sm__inst_executed.sum.pct_of_peak_sustained_active"] # wfr 20211026
         del dictMetric["sm__inst_executed.sum"]
         del dictMetric["sm__inst_executed.sum.per_second"]
         del dictMetric["sm__cycles_active.avg"]
+        del dictMetric["sm__cycles_elapsed.avg"]
         del dictMetric["gpu__cycles_active.avg"]
         del dictMetric["l1tex__t_sectors_lookup_hit.sum"]
         del dictMetric["l1tex__t_sectors_lookup_miss.sum"]
@@ -194,5 +228,14 @@ class EP_OPT_XGBOOST():
         # PredictedEDP = PredictedEnergy * PredictedTime
         # PredictedED2P = PredictedEDP * PredictedTime
 
-        return PredictedEnergy, PredictedTime
+        # wfr construct feature matrix for memory clock model
+        arrayMetric = np.array(list(dictMetric.values()))
+        arrayFeatureMem = np.tile(arrayMetric, (len(arrayMemClk),1))
+        arrayRelativeMemClk = (arrayMemClk / MemClkBase).reshape(-1, 1)
+        arrayFeatureMem = np.concatenate((arrayRelativeMemClk, arrayFeatureMem), axis=1)
+
+        PredictedEnergyMem = self.EnergyModel0.predict(arrayFeatureMem)
+        PredictedTimeMem = self.TimeModel0.predict(arrayFeatureMem)
+
+        return PredictedEnergy, PredictedTime, PredictedEnergyMem, PredictedTimeMem
 

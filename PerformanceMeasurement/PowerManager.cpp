@@ -1,9 +1,9 @@
 
 /*******************************************************************************
-Copyright(C), 2020-2020, 瑞雪轻飏
+Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: PowerManager.cpp
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20200514
   Description: 能耗控制
        Others: 
@@ -72,7 +72,7 @@ int POWER_MANAGER::initArg(EPOPT_NVML* inpNVML){
     pMyNVML->Uninit();
 
     if(GPUName == RTX2080TI){
-        SMClkGearCount = ((float)(RTX2080TiMaxSMClk-RTX2080TiMinSMClk))/RTX2080TiSMClkStep + 1;
+        SMClkGearCount = (int)(((float)(RTX2080TiMaxSMClk-RTX2080TiMinSMClk))/RTX2080TiSMClkStep + 1);
         MinSMClk = RTX2080TiMinSMClk;
         MaxSMClk = RTX2080TiMaxSMClk;
         BaseSMClk = RTX2080TiBaseSMClk;
@@ -86,7 +86,7 @@ int POWER_MANAGER::initArg(EPOPT_NVML* inpNVML){
             }
         }
     }else if(GPUName == RTX3080TI){
-        SMClkGearCount = ((float)(RTX3080TiMaxSMClk-RTX3080TiMinSMClk))/RTX3080TiSMClkStep + 1;
+        SMClkGearCount = (int)(((float)(RTX3080TiMaxSMClk-RTX3080TiMinSMClk))/RTX3080TiSMClkStep + 1);
         MinSMClk = RTX3080TiMinSMClk;
         MaxSMClk = RTX3080TiMaxSMClk;
         BaseSMClk = RTX3080TiBaseSMClk;
@@ -226,7 +226,7 @@ int POWER_MANAGER::SetSMClkRange(int inLowerSMClk, int inUpperSMClk){
         printf("Power Manager ERROR: Failed to set SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
         exit(-1);
     }
-    // std::cout << "Power Manager: Set SM clock range [" << inLowerSMClk << ", " << inUpperSMClk << "]" << std::endl;
+    std::cout << "Power Manager: Set SM clock range [" << inLowerSMClk << ", " << inUpperSMClk << "]" << std::endl;
 
     pMyNVML->Uninit();
 
@@ -250,7 +250,7 @@ int POWER_MANAGER::SetSMClkRange(float inLowerPct, float inUpperPct){
         printf("Power Manager ERROR: Failed to set SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
         exit(-1);
     }
-    // std::cout << "Power Manager: Set SM clock range [" << LowerSMClk << ", " << UpperSMClk << "]" << std::endl;
+    std::cout << "Power Manager: Set SM clock range [" << LowerSMClk << ", " << UpperSMClk << "]" << std::endl;
 
     pMyNVML->Uninit();
 
@@ -279,8 +279,52 @@ int POWER_MANAGER::ResetSMClkRange(){
     return 0;
 }
 
+int POWER_MANAGER::SetMemClkRange(int inLowerMemClk, int inUpperMemClk){
+    
+    pMyNVML->Init();
+    nvmlResult = nvmlDeviceGetHandleByIndex(DeviceIDNVML, &device);
+    if(NVML_SUCCESS != nvmlResult){
+        std::cout << "Power Manager ERROR: Failed to get device handle (NVML ERROR INFO: " << nvmlErrorString(nvmlResult) << "). Invalid GPU index: -i " << optarg << "." << std::endl;
+        exit(-1);
+    }
+    
+    nvmlResult = nvmlDeviceSetMemoryLockedClocks(device, inLowerMemClk, inUpperMemClk);
+    if(NVML_SUCCESS != nvmlResult){
+        printf("Power Manager ERROR: Failed to set Mem clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+        exit(-1);
+    }
+    std::cout << "Power Manager: Set Mem clock range [" << inLowerMemClk << ", " << inUpperMemClk << "]" << std::endl;
+
+    pMyNVML->Uninit();
+
+    return 0;
+}
+
+int POWER_MANAGER::ResetMemClkRange(){
+
+    pMyNVML->Init();
+    nvmlResult = nvmlDeviceGetHandleByIndex(DeviceIDNVML, &device);
+    if(NVML_SUCCESS != nvmlResult){
+        std::cout << "Power Manager ERROR: Failed to get device handle (NVML ERROR INFO: " << nvmlErrorString(nvmlResult) << "). Invalid GPU index: -i " << optarg << "." << std::endl;
+        exit(-1);
+    }
+
+    nvmlResult = nvmlDeviceResetMemoryLockedClocks(device);
+    if(NVML_SUCCESS != nvmlResult){
+        printf("Power Manager ERROR: Failed to reset Mem clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+        exit(-1);
+    }
+
+    std::cout << "Power Manager: Reset Mem clock" << std::endl;
+
+    pMyNVML->Uninit();
+
+    return 0;
+}
+
 int POWER_MANAGER::Reset(){
     ResetSMClkRange();
+    ResetMemClkRange();
     return 0;
 }
 

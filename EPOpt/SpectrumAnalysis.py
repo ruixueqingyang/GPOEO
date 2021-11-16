@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 MAPEMax = 1e4
 MAPEStdMax = 1e4
 FigCount = 0
-TLowBoundBase = 2.5
+TLowBoundBase = 0.4
 TLowBound = TLowBoundBase
 TRound = 6
 SetTLowBound = False
@@ -96,7 +96,7 @@ def FindClusterCenter(arrayP, N, PctRange):
     return arrayPoint[arrayRangeIndex[0]], arrayHalfRange[arrayRangeIndex[0]]
 
 # wfr 20210126 聚类, 合并区间, 不至于有太多的区间
-def GrpClustering(arrayP):
+def GrpClustering(arrayP, GrpFactor):
     Mean = np.mean(arrayP)
 
     # wfr 20210130 从 N 位点中挑选聚类的初始中心点, 从其中挑选附近采样点最密集的 N 位点
@@ -301,7 +301,7 @@ def GrpClustering(arrayP):
 # 周期 T
 # 该函数是执行热点, 且有优化空间, 可以更加向量化
 # wfr 20210108 传入公倍数周期的最大因子
-def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = -1):
+def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TInit = -1, TRef = -1):
 
     global MAPEMax, MAPEStdMax
     TMAPE = MAPEMax
@@ -321,6 +321,16 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
     # tmpOffset = len(arraySample) - arrayIndex[-1]
     # arrayIndex += int(0.5 * tmpOffset)
 
+    # wfr 20211015 1倍周期 / 多倍周期 应该使用不同的 分组聚类数量,
+    # 这里以 TInit 为基准, 计算分组倍增系数, T > TInit, 则取倍增系数为: 2, 3, 4, ...
+    # 分组聚类时, 会将每个分组 再拆分为 2, 3, 4 个分组
+    GrpFactor = int(1)
+    if TInit > T:
+        tmp = TInit / T
+        GrpFactor = int(tmp)
+        if tmp - GrpFactor > 0.75:
+            GrpFactor += 1
+
     for indexTRgn in range( NumTRegion - 1 ): # 对于每两个相邻的周期区间, 衡量其功率数据分布相似情况
 
         # wfr 20210106
@@ -333,9 +343,9 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         tmpStd1 = np.std(arrayP1)
 
         if tmpStd0 < tmpStd1:
-            arrayGroupIndex = GrpClustering(arrayP1)
+            arrayGroupIndex = GrpClustering(arrayP1, GrpFactor)
         else:
-            arrayGroupIndex = GrpClustering(arrayP0)
+            arrayGroupIndex = GrpClustering(arrayP0, GrpFactor)
 
         # global GrpFigCount
         #
@@ -344,7 +354,7 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         # ax.plot(arrayP0)
         # for v in arrayGroupIndex:
         #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("./Trace/Grp-" + str(GrpFigCount) + "-0.png")
+        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-0.png")
         # # plt.show()
         # plt.close()
         #
@@ -353,7 +363,7 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         # ax.plot(arrayP1)
         # for v in arrayGroupIndex:
         #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("./Trace/Grp-" + str(GrpFigCount) + "-1.png")
+        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-1.png")
         # # plt.show()
         # plt.close(fig)
         #
@@ -386,13 +396,12 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TRef = 
         arrayTRegionMAPE = np.append(arrayTRegionMAPE, TRegionMAPE)
     # end
 
-    # wfr 20210828 对于 小备选周期, 划分的区间比较多, 很可能有误差非常小的区间, 不应该考虑这些区间, 因为可能处于一个大周期的平台上,
+    # wfr 20210828 对于 小备选周期, 划分的周期区间比较多, 很可能有误差非常小的区间, 不应该考虑这些区间, 因为可能处于一个大周期的平台上,
     # 因此考虑将 arrayTRegionMAPE 分成 TRef/T 组, 取出每组中的最大误差 重新组成 tmpArray
     if TRef < 0 or TRef / T < 1.7:
         TMAPE = np.mean(arrayTRegionMAPE)
         TMAPEStd = np.std(arrayTRegionMAPE)
     else:
-        pass
         tmpEachCount = int(np.ceil(TRef / T)) # 每组中的区间个数
         tmpGrpCount = int(np.ceil(len(arrayTRegionMAPE) / tmpEachCount)) # 组数
         tmpAppendCount = int(tmpGrpCount * tmpEachCount - len(arrayTRegionMAPE)) # 需要填充的元素个数
@@ -448,7 +457,9 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
         tmpPeakOrder = arrayPeakOrder[(arrayT <= TUpBound)]
         arrayT = arrayT[(arrayT <= TUpBound)]
         # 再排除峰值不够大的周期
-        arrayT = arrayT[(tmpPeakOrder > 0.65 * tmpPeakOrder[0])]
+        # arrayT = arrayT[(tmpPeakOrder > 0.65 * tmpPeakOrder[0])]
+        arrayT = arrayT[(tmpPeakOrder > 0.60 * tmpPeakOrder[0])]
+        arrayT = arrayT[:6]
         if len(arrayT) == 0:
             print("TCompute ERROR: 没有备选周期!")
             return TUpBound, MAPEMax
@@ -461,7 +472,7 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
             else:
                 break
 
-    # print("arrayT = {0}".format(arrayT))
+    print("arrayT = {0}".format(arrayT))
 
     if isPlot == True:
         # plt.clf()
@@ -479,7 +490,8 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
 
         global FigCount
         import os
-        WorkDir = "./tmp"
+        WorkDir = "D:\cloud\cloud\study\Coding\Energy\EPOpt\\tmp"
+        # WorkDir = "/home/wfr/work/Energy/EPOpt/tmp"
         FigFile = os.path.join(WorkDir, "TCompute" + str(FigCount) + ".png")
         plt.savefig(FigFile)
         FigCount += 1
@@ -512,7 +524,7 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
 
     arrayScaleT = np.append(arrayScaleT, TCandidateExtra)
 
-    # print("arrayScaleT = {0}".format(arrayScaleT[:9]))
+    print("arrayScaleT = {0}".format(arrayScaleT[:9]))
 
     if int(preference) == int(1):
         T_lower = lastT * 0.8
@@ -538,22 +550,30 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
             print("]")
     else:
         pass
-        print("==>no preference")
+        # print("==>no preference")
     sys.stdout.flush()
 
     arrayTMAPE = MAPEMax * np.ones(len(arrayScaleT))
     arrayTMAPEStd = MAPEStdMax * np.ones(len(arrayScaleT))
 
+    TInit = arrayScaleT[0]
     for i in range( len(arrayScaleT) ): # 对于每个猜测的周期长度
-        arrayTMAPE[i], arrayTMAPEStd[i] = DistributionMAPE(arrayScaleT[i], arraySample, t, "mean", np.max(arrayScaleT))
+        arrayTMAPE[i], arrayTMAPEStd[i] = DistributionMAPE(arrayScaleT[i], arraySample, t, "mean", TInit, np.max(arrayScaleT))
+    print("arrayTMAPE = {0}".format(arrayTMAPE))
 
     # 如果峰值最高的周期的 MAPE 没有被计算, 即测量时间不够长, 就直接返回不稳定
-    if arrayTMAPE[0] > MAPEMax - 1 or int(2 * sum(arrayTMAPE > MAPEMax - 1)) >= int(len(arrayTMAPE)):
+    if sum(arrayTMAPE > MAPEMax - 1) > 0:
+    # if arrayTMAPE[0] > MAPEMax - 1 or int(2 * sum(arrayTMAPE > MAPEMax - 1)) >= int(len(arrayTMAPE)):
+        tmpT = np.max(arrayScaleT)
+        # if int(2 * sum(arrayTMAPE > MAPEMax - 1)) >= int(len(arrayTMAPE)):
+        #     tmpT = np.max(arrayScaleT)
+        # else:
+        #     tmpT = arrayScaleT[0]
         print("TCompute: 本次测量时间不够长")
         print("TCompute: TOpt = {0:.2f} s".format(arrayScaleT[0]))
         print("TCompute: MAPEOpt = {0:.2f}".format(arrayTMAPE[0]))
         # return arrayScaleT[0], arrayTMAPE[0]
-        return arrayScaleT[0], -1
+        return tmpT, -1
 
     # wfr 20210129 修改根据 arrayTMAPE 和 arrayTMAPEStd 判断最优周期的规则
     # 先将 arrayTMAPEStdIndex 中的 0 都赋值成 其中的 非0最小值
@@ -584,58 +604,68 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
     MAPEOpt = arrayTMAPE[IndexOpt]
     MAPEStdOpt = arrayTMAPEStd[IndexOpt]
     np.set_printoptions(precision=2, suppress=True)
-    print("TOpt = {0}".format(TOpt))
-    print("arrayScaleT: {0}".format(arrayScaleT))
-    # print("arrayTError: {0}".format(arrayTError))
-    print("arrayTMAPE: {0}".format(arrayTMAPE))
-    # print("arrayTMAPEStd: {0}".format(arrayTMAPEStd))
+    # print("TOpt = {0}".format(TOpt))
+    # print("arrayScaleT: {0}".format(arrayScaleT))
+    # # print("arrayTError: {0}".format(arrayTError))
+    # print("arrayTMAPE: {0}".format(arrayTMAPE))
+    # # print("arrayTMAPEStd: {0}".format(arrayTMAPEStd))
 
-    # wfr 20210109 因为 fft变换 频率分辨率是不变的, 周期是频率的倒数, 其分辨率是变化的
-    # 频率越低/周期越长, 周期分辨率越低, 所以需要动态调节邻近搜索区间
-    # 频谱分析得到的周期可能有误差(因为周期分辨率的限制), 因此需要在此周期附近进行局部搜索, 得到更精确的周期
-    # wfr 20210109 中心频率 及 频率刻度
-    FreqCenter = 1 / TOpt
-    FreqResolution = (0.5 * fs) / len(arraySample)
-    # wfr 20210109 先计算频率邻近区间
-    FreqLow = FreqCenter - 0.7 * FreqResolution
-    FreqUp = FreqCenter + 0.7 * FreqResolution
-    # wfr 20210109 再计算周期邻近区间
-    TLow = 1 / FreqUp
-    if FreqLow > 0:
-        TUp = 1 / FreqLow
-    else:
-        TUp = 1.5 * TOpt
-    # wfr 20210113 确保邻近搜索范围大于等于 +/-15%
-    TLow = np.min([0.85 * TOpt, TLow])
-    TUp = np.max([1.15 * TOpt, TUp])
-    # wfr 20210109 用因子限制上下界, 防止对于公倍数周期过度搜索
-    TLow = np.max([(TOpt-0.5*FactorMax), TLow])
-    # TLow = np.max([TLowBound, TLow]) # wfr 20210121 搜索区间下限不小于 TUpBound
-    TUp = np.min([(TOpt+0.5*FactorMax), TUp])
-    # wfr 20210109 区间最多分8份
-    TStep = (TUp - TLow) / 8
-    TStep = np.min([TStep, 1]) # wfr 20210113 步长的上限是 1s
-    TStep = np.max([TStep, 1 * SampleInterval/1000])
-    # wfr 20210109 生成邻近搜索序列, 要包括区间端点
-    arraySearchT = np.arange(TLow, TUp, TStep)
-    arraySearchT = np.append(arraySearchT, TUp)
-    arraySearchT = np.append(arraySearchT, TOpt)
+    for i in range(3):
+        # wfr 20210109 因为 fft变换 频率分辨率是不变的, 周期是频率的倒数, 其分辨率是变化的
+        # 频率越低/周期越长, 周期分辨率越低, 所以需要动态调节邻近搜索区间
+        # 频谱分析得到的周期可能有误差(因为周期分辨率的限制), 因此需要在此周期附近进行局部搜索, 得到更精确的周期
+        # wfr 20210109 中心频率 及 频率刻度
+        FreqCenter = 1 / TOpt
+        FreqResolution = (0.5 * fs) / len(arraySample)
+        # wfr 20210109 先计算频率邻近区间
+        FreqLow = FreqCenter - 0.7 * FreqResolution
+        FreqUp = FreqCenter + 0.7 * FreqResolution
+        # wfr 20210109 再计算周期邻近区间
+        TLow = 1 / FreqUp
+        if FreqLow > 0:
+            TUp = 1 / FreqLow
+        else:
+            TUp = 1.5 * TOpt
+        # wfr 20210113 确保邻近搜索范围大于等于 +/-15%
+        TLow = np.min([0.85 * TOpt, TLow])
+        TUp = np.max([1.15 * TOpt, TUp])
+        # wfr 20210109 用因子限制上下界, 防止对于公倍数周期过度搜索
+        TLow = np.max([(TOpt-0.5*FactorMax), TLow])
+        # TLow = np.max([TLowBound, TLow]) # wfr 20210121 搜索区间下限不小于 TUpBound
+        TUp = np.min([(TOpt+0.5*FactorMax), TUp])
+        # wfr 20210109 区间最多分8份
+        TStep = (TUp - TLow) / 10
+        TStep = np.min([TStep, 1]) # wfr 20210113 步长的上限是 1s
+        TStep = np.max([TStep, 1 * SampleInterval/1000])
 
-    arraySearchTMAPE = MAPEMax * np.ones(len(arraySearchT))
-    arraySearchTMAPEStd = MAPEStdMax * np.ones(len(arraySearchT))
-    # 对于每个备选的周期, 计算 MAPE, MAPE越小越好, 越小说明功率变化/分布情况越一致
-    for i in range( len(arraySearchT) ):
-        arraySearchTMAPE[i], arraySearchTMAPEStd[i] = DistributionMAPE(arraySearchT[i], arraySample, t, "mean", np.max(arrayScaleT))
+        if TUp - TLow <= TStep:
+            return TOpt, MAPEOpt
 
-    arrayTIndex = np.argsort(arraySearchTMAPE)  # 将 arrayTmp 升序排序 得到的 索引
-    IndexOpt = arrayTIndex[0]
-    TOpt = arraySearchT[IndexOpt]
-    MAPEOpt = arraySearchTMAPE[IndexOpt]
+        # wfr 20210109 生成邻近搜索序列, 要包括区间端点
+        arraySearchT = np.arange(TLow, TUp, TStep)
+        arraySearchT = np.append(arraySearchT, TUp)
+        arraySearchT = np.append(arraySearchT, TOpt)
 
-    # print("TCompute: arraySearchT: {0}".format(arraySearchT))
-    # print("TCompute: arrayTError: {0}".format(arrayTError))
-    # print("TCompute: arraySearchTMAPE: {0}".format(arraySearchTMAPE))
-    # print("TCompute: arraySearchTMAPEStd: {0}".format(arraySearchTMAPEStd))
+        arraySearchTMAPE = MAPEMax * np.ones(len(arraySearchT))
+        arraySearchTMAPEStd = MAPEStdMax * np.ones(len(arraySearchT))
+        # 对于每个备选的周期, 计算 MAPE, MAPE越小越好, 越小说明功率变化/分布情况越一致
+        TInit = TOpt
+        for i in range( len(arraySearchT) ):
+            arraySearchTMAPE[i], arraySearchTMAPEStd[i] = DistributionMAPE(arraySearchT[i], arraySample, t, "mean", TInit, np.max(arrayScaleT))
+
+        # arrayTIndex = np.argsort(arraySearchTMAPE)  # 将 arrayTmp 升序排序 得到的 索引
+        # IndexOpt = arrayTIndex[0]
+        IndexOpt = np.argmin(arraySearchTMAPE)
+        TOpt = arraySearchT[IndexOpt]
+        MAPEOpt = arraySearchTMAPE[IndexOpt]
+
+        if IndexOpt == len(arraySearchT) - 1 or (0.2 * (len(arraySearchT)-1) < IndexOpt and IndexOpt < 0.8 * (len(arraySearchT)-1)):
+            break
+
+        print("TCompute: arraySearchT: {0}".format(arraySearchT))
+        # print("TCompute: arrayTError: {0}".format(arrayTError))
+        print("TCompute: arraySearchTMAPE: {0}".format(arraySearchTMAPE))
+        # print("TCompute: arraySearchTMAPEStd: {0}".format(arraySearchTMAPEStd))
 
     # wfr 20210108 放大太短的周期
     if TOpt < TLowBound:
@@ -645,7 +675,7 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
         #     SetTLowBound = True
         TOpt = TOpt * np.round(TLowBound / TOpt)
 
-    # print("TCompute: TOpt = {0:.2f} s".format(TOpt))
+    print("TCompute: TOpt = {0:.2f} s".format(TOpt))
     # print("TCompute: MAPEOpt = {0:.2f}".format(MAPEOpt))
     # print("")
 
@@ -718,32 +748,51 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
 
     # 保存原始数据到文件
     if len(TraceFileName) > 0:
-        FileDir = "./Trace/"+TraceFileName+".pkl"
+        FileDir = "/home/wfr/work/Energy/Data-RTX3080Ti/Trace/"+TraceFileName+".pkl"
         pickle.dump(listSample, open(FileDir, "wb"))
 
 
     # 低通滤波
     # 采样频率 10Hz, 要滤除 Threshold Hz 以上的频率成分
-    SampleFreq = 1/(SampleInterval/1000)
-    Threshold = 2
-    Wn = 2 * Threshold / SampleFreq
-    b, a = signal.butter(8, Wn, 'lowpass')
-    SampleFilted = signal.filtfilt(b, a, arraySample)
-    # SampleFilted = SampleFilted[0:]
+    # SampleFreq = 1/(SampleInterval/1000)
+    # Threshold = 2
+    # Wn = 2 * Threshold / SampleFreq
+    # b, a = signal.butter(8, Wn, 'lowpass')
+    # SampleFilted = signal.filtfilt(b, a, arraySample)
+    SampleFilted = arraySample
 
 
     tmpT, tmpSMAPE = TCompute(SampleFilted, SampleInterval, TUpBound, isPlot)
     # 如果测量时间不够长, 就直接返回不稳定
-    if tmpT > (0.5 * MeasureDuration):
+    # wfr 20211027 尽早判断出是非周期应用, 尽早返回
+    if MeasureDuration >= 3 * TUpBound and tmpT > TUpBound:
+        T = TUpBound
+        isStable = False
+        MeasureDurationNext = -1
+        return T, isStable, MeasureDurationNext
+    elif MeasureDuration >= 3 * TUpBound:
+        tmpIndex = int(1/(SampleInterval/1000) * 0.33 * TUpBound)
+        tmpT1, tmpSMAPE1 = TCompute(SampleFilted[tmpIndex:], SampleInterval, TUpBound, isPlot)
+        tmpIndex = int(1/(SampleInterval/1000) * 0.66 * TUpBound)
+        tmpT2, tmpSMAPE2 = TCompute(SampleFilted[tmpIndex:], SampleInterval, TUpBound, isPlot)
+
+        tmpArrayT = np.array([tmpT, tmpT1, tmpT2])
+        SMAPE = abs( (np.max(tmpArrayT)-np.min(tmpArrayT)) / np.mean(tmpArrayT) )
+
+        if SMAPE > 0.3:
+            T = min(TUpBound, tmpT)
+            isStable = False
+            MeasureDurationNext = -1
+            return T, isStable, MeasureDurationNext
+
+    elif tmpT > (0.5 * MeasureDuration):
         T = tmpT
         isStable = False
-        MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
+        if MeasureDuration < 3 * TUpBound:
+            MeasureDurationNext = max(0.5 * tmpT, (3.1 * TUpBound - MeasureDuration)) # 测量够 3.1倍 周期
+        else:
+            MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
         print("T_SpectrumAnalysis: 本次测量时间不够长")
-        # if MeasureDuration > TUpBound and isStable == False:
-        #     if True == NotPeriodic(arraySample, SampleInterval, T):
-        #         if T < 4:
-        #             T = np.ceil(4 / T) * T
-        #         MeasureDurationNext = -1
         print("T_SpectrumAnalysis: TOpt = {0:.2f} s".format(tmpT))
         print("T_SpectrumAnalysis: isStable = {0}".format(isStable))
         print("T_SpectrumAnalysis: MeasureDurationNext = {0}".format(MeasureDurationNext))
@@ -751,19 +800,38 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
     arrayT = np.append(arrayT, tmpT)
     arraySMAPE = np.append(arraySMAPE, tmpSMAPE)
 
-    Step = 0.5
-    MeasureDurationLeft = MeasureDuration - tmpT * Step
+    StepFactor = 0.5
+    MinStep = MeasureDuration / 10
+    tmpStep = np.max([tmpT * StepFactor, MinStep])
+    MeasureDurationLeft = MeasureDuration - tmpStep
     while MeasureDurationLeft / np.max(arrayT) >= 2.8:
         # 计算剩余采样点的起始 index
         tmpIndexBegin = int( (MeasureDuration-MeasureDurationLeft) / (SampleInterval/1000) )
         arrayPart = SampleFilted[tmpIndexBegin:]
-        tmpT, tmpSMAPE = TCompute(arrayPart, SampleInterval, TUpBound, isPlot, lastT, int(preference), arrayT)
+        # tmpT, tmpSMAPE = TCompute(arrayPart, SampleInterval, TUpBound, isPlot, lastT, int(preference), arrayT)
+        # tmpT, tmpSMAPE = TCompute(arrayPart, SampleInterval, TUpBound, isPlot, lastT, int(preference), arrayT[-1])
+        tmpT, tmpSMAPE = TCompute(arrayPart, SampleInterval, TUpBound, isPlot, lastT, int(preference), [])
         arrayT = np.append(arrayT, tmpT)
         arraySMAPE = np.append(arraySMAPE, tmpSMAPE)
 
-        # 每次减去上次周期的长度
-        MeasureDurationLeft = MeasureDurationLeft - tmpT * Step
+        if tmpT > (0.5 * MeasureDurationLeft):
+            T = tmpT
+            isStable = False
+            if MeasureDuration < 3 * TUpBound:
+                MeasureDurationNext = max(0.5 * tmpT, (3.1 * TUpBound - MeasureDuration)) # 测量够 3.1倍 周期
+            else:
+                MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
+            print("T_SpectrumAnalysis: 本次测量时间不够长")
+            print("T_SpectrumAnalysis: TOpt = {0:.2f} s".format(tmpT))
+            print("T_SpectrumAnalysis: isStable = {0}".format(isStable))
+            print("T_SpectrumAnalysis: MeasureDurationNext = {0}".format(MeasureDurationNext))
+            return T, isStable, MeasureDurationNext
+
+        # 每次减去上次周期的长度, 且设置每次步长的下限, 防止步长太小
+        tmpStep = np.max([tmpT * StepFactor, MinStep])
+        MeasureDurationLeft = MeasureDurationLeft - tmpStep
         # MeasureDurationLeft = MeasureDurationLeft - np.mean(arrayT)
+
     print("T_SpectrumAnalysis: arrayT: {0}".format(arrayT))
     print("T_SpectrumAnalysis: arraySMAPE: {0}".format(arraySMAPE))
 
@@ -772,59 +840,76 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
     tmpIndex = np.argwhere(arraySMAPE < 0).flatten() # SMAPE < 0 说明 TCompute 认为测量时间不够长
     arraySMAPE[tmpIndex] = np.min(arraySMAPE)
     tmpIndex = np.argsort(arraySMAPE).flatten() # 将 tmpArraySMAPE 升序排列得到的 索引
-    tmpT = np.max(arrayT[tmpIndex])
+    # tmpT = np.max(arrayT[tmpIndex])
+    tmpT = arrayT[0]
     if MeasureDuration / tmpT < MeasureTFactor:
         T = tmpT
         isStable = False
+        if MeasureDuration < 3 * TUpBound:
+            MeasureDurationNext = max(0.5 * tmpT, (3.1 * TUpBound - MeasureDuration)) # 测量够 3.1倍 周期
+        else:
+            MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
         print("T_SpectrumAnalysis: 本次测量时间不够长")
-        MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
-        # if MeasureDuration > TUpBound and isStable == False:
-        #     if True == NotPeriodic(arraySample, SampleInterval, T):
-        #         if T < 4:
-        #             T = np.ceil(4 / T) * T
-        #         MeasureDurationNext = -1
         print("T_SpectrumAnalysis: TOpt = {0:.2f} s".format(T))
         print("T_SpectrumAnalysis: isStable = {0}".format(isStable))
         print("T_SpectrumAnalysis: MeasureDurationNext = {0}".format(MeasureDurationNext))
         return T, isStable, MeasureDurationNext
 
+    if StrictMode == "strict":
+        tmpThreshold = 0.10
+    elif StrictMode == "relaxed":
+        tmpThreshold = 0.30
+    else:
+        tmpThreshold = 0.15
+    tmpThreshold1 = tmpThreshold + 0.05
+
     LenT = len(arrayT)
     LenMin = 3
-    LenMax = 5
-    if LenT < LenMin: # wfr 测量区间还比较短 
-        tmpIndex = np.argsort(arraySMAPE) # 将 tmpArraySMAPE 升序排列得到的 索引
-        T = arrayT[tmpIndex[0]]
+    LenMax = 8
+    tmpIndex = np.argsort(arraySMAPE) # 将 tmpArraySMAPE 升序排列得到的 索引
+    T = arrayT[tmpIndex[0]]
+    tmpIndex = np.argsort(arrayT) # 将 tmpArraySMAPE 升序排列得到的 索引
+    IndexMiddle = tmpIndex[round(len(tmpIndex)/2)]
+    TMiddle = arrayT[IndexMiddle]
+    if LenT < LenMin: # wfr 测量区间还比较短
         T = np.mean(arrayT[(0.65*T<arrayT)&(arrayT<1.35*T)])
         SMAPE = abs( (np.max(arrayT)-np.min(arrayT)) / np.mean(arrayT) )
         print("T_SpectrumAnalysis: SMAPE = {0:.2f}".format(SMAPE))
 
         isStable = False
 
-        if MeasureDuration > 2.1 * TUpBound and SMAPE > 0.15:
+        if MeasureDuration > 2.1 * TUpBound and SMAPE > tmpThreshold:
             MeasureDurationNext = -1
 
         # 测量够 5倍 周期
         elif MeasureDuration < MeasureTFactor * np.max(arrayT):
-            MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
+            # MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
+            # MeasureDurationNext = np.ceil(MeasureDuration / np.max(arrayT)) * np.max(arrayT) - MeasureDuration + 5
+            tmpNext = np.max([np.max(arrayT), MinStep])
+            if tmpNext + MeasureDuration < MeasureTFactor * np.max(arrayT):
+                MeasureDurationNext = tmpNext
+            else:
+                MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
         else:
             MeasureDurationNext = np.ceil(MeasureDuration / np.max(arrayT)) * np.max(arrayT) - MeasureDuration + 5
 
     elif LenMin <= LenT:
 
-        if StrictMode == "strict":
-            tmpThreshold = 0.10
-        elif StrictMode == "relaxed":
-            tmpThreshold = 0.30
-        else:
-            tmpThreshold = 0.10
-
         tmp = min(LenT, LenMax)
-        tmpIndexBegin = int(round(0.2 * LenT))
-        tmpIndexEnd = int(round(0.8 * LenT)) - 1
-        # tmpArrayT = np.array(arrayT[LenT-tmp:])
-        # tmpArraySMAPE = np.array(arraySMAPE[LenT-tmp:])
-        tmpArrayT = np.array(arrayT[tmpIndexBegin:tmpIndexEnd])
-        tmpArraySMAPE = np.array(arraySMAPE[tmpIndexBegin:tmpIndexEnd])
+        if LenT > 8:
+            tmpIndexBegin = int(round(0.2 * LenT))
+            tmpIndexEnd = int(round(0.8 * LenT)) - 1
+            tmpIndex = np.arange(tmpIndexBegin,tmpIndexEnd)
+        elif LenT >= 4: # wfr 20211012 排除部分异常值
+            # tmpIndex = np.argwhere((0.65*T<arrayT) & (arrayT<1.35*T)).flatten()
+            tmpIndex = np.argwhere((0.60*TMiddle<arrayT) & (arrayT<1.35*TMiddle)).flatten()
+        else:
+            tmpIndexBegin = max(0, LenT-tmp)
+            tmpIndexEnd = LenT
+            tmpIndex = np.arange(tmpIndexBegin,tmpIndexEnd)
+        tmpArrayT = np.array(arrayT[tmpIndex])
+        print("T_SpectrumAnalysis: tmpArrayT = {}".format(tmpArrayT))
+        tmpArraySMAPE = np.array(arraySMAPE[tmpIndex])
         SMAPE = abs( (np.max(tmpArrayT)-np.min(tmpArrayT)) / np.mean(tmpArrayT) )
         print("T_SpectrumAnalysis: SMAPE = {0:.2f}".format(SMAPE))
 
@@ -835,16 +920,21 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
         if SMAPE < tmpThreshold: # wfr 20201231 对称平均百分误差较小则认为稳定, 停止测量
             isStable = True
             MeasureDurationNext = -1
-        elif tmpThreshold <= SMAPE and SMAPE < 0.15:
+        elif tmpThreshold <= SMAPE and SMAPE < tmpThreshold1:
             isStable = False
             if MeasureDuration > 2.1 * TUpBound:
                 MeasureDurationNext = -1
             # 测量够 MeasureTFactor倍 周期
             elif MeasureDuration < MeasureTFactor * np.max(arrayT):
-                MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
+                # MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
+                tmpNext = np.max([np.max(arrayT), MeasureDuration / 10])
+                if tmpNext + MeasureDuration < MeasureTFactor * np.max(arrayT):
+                    MeasureDurationNext = tmpNext
+                else:
+                    MeasureDurationNext = MeasureTFactor * np.max(arrayT) - MeasureDuration + 5
             else:
                 MeasureDurationNext = np.ceil(MeasureDuration / np.max(arrayT)) * np.max(arrayT) - MeasureDuration + 5
-        elif 0.15 <= SMAPE: # 最近几次周期相差较大, 测量区间远大于最近的最大周期
+        elif tmpThreshold1 <= SMAPE: # 最近几次周期相差较大, 测量区间远大于最近的最大周期
             isStable = False
             if MeasureDuration > 2.1 * TUpBound:
                 MeasureDurationNext = -1
@@ -868,11 +958,67 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
             MeasureDurationNext = -1
         
     if MeasureDurationNext > 0:
-        MeasureDurationNext = max(0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)) # 测量够 5倍 周期
+        MeasureDurationNext = np.max([MeasureDurationNext, 0.5 * tmpT, (MeasureTFactor * tmpT - MeasureDuration)]) # 测量够 5倍 周期
     print("T_SpectrumAnalysis: TOpt = {0:.2f} s".format(T))
     print("T_SpectrumAnalysis: isStable = {0}".format(isStable))
     print("T_SpectrumAnalysis: MeasureDurationNext = {0}".format(MeasureDurationNext))
 
     return T, isStable, MeasureDurationNext
 
-    # 怎么处理周期较长的情况(例如>66s)
+def TComputeFFT(arraySample, SampleInterval, TUpBound, isPlot = False):
+
+    fs = 1/(SampleInterval/1000)
+    t = (SampleInterval/1000) * np.arange(0, len(arraySample), 1)
+    num_fft = t.size
+
+    # 傅里叶变换
+    idx = fftfreq(num_fft, 1/fs)
+    arrayX = idx[:num_fft//2]
+    arrayY = fft(arraySample, num_fft)
+    arrayY = np.abs(arrayY)
+    arrayY = arrayY[:num_fft//2]
+    # arrayLogY = np.log10(arrayY[:num_fft//2])
+
+    listPeakIndex, Properties = find_peaks( arrayY )
+
+    # 取出峰值处的 频率 和 幅值
+    arrayPeakX = arrayX[listPeakIndex]
+    arrayPeak = arrayY[listPeakIndex]
+    arrayPeakIndex = np.argsort(-1 * arrayPeak)  # 将 arrayPeak 降序排列得到的 索引
+    # print("TCompute: len of arrayPeakX = {0}".format(len(arrayPeakX)))
+
+    # print("arrayPeak = {0}".format(arrayPeak[arrayPeakIndex[:9]]))
+    # print("Freq = {0}".format(arrayPeakX[arrayPeakIndex[:9]]))
+    # print("T = {0}".format(1/arrayPeakX[arrayPeakIndex[:9]]))
+
+    # 取出振幅最大的前几个周期
+    arrayT = 1 / arrayPeakX[arrayPeakIndex]  # 先按照峰值大小 降序排列
+    arrayPeakOrder = arrayPeak[arrayPeakIndex]
+    # 再排除峰值不够大的周期
+    arrayT = arrayT[(arrayPeakOrder > 0.65 * arrayPeakOrder[0])]
+
+    print("TComputeFFT: T = {0:.2f} s".format(arrayT[0]))
+    sys.stdout.flush
+    return arrayT[0]
+
+def T_FFT(listSample, SampleInterval, TUpBound, MeasureTFactor, TraceFileName, isPlot = False):
+    T = 1.0
+
+    arraySample = np.array(listSample)
+    MeasureDuration = (len(arraySample)-1) * (SampleInterval/1000)
+    MeasureDurationNext = -1
+    
+    # 保存原始数据到文件
+    if len(TraceFileName) > 0:
+        FileDir = "/home/wfr/work/Energy/Data-RTX3080Ti/Trace/"+TraceFileName+".pkl"
+        pickle.dump(listSample, open(FileDir, "wb"))
+
+    T = TComputeFFT(arraySample, SampleInterval, TUpBound, isPlot)
+    # 如果测量时间不够长, 就直接返回不稳定
+    if MeasureTFactor * T > MeasureDuration:
+        MeasureDurationNext = max(0.5 * T, (MeasureTFactor * T - MeasureDuration)) # 测量够 3倍 周期
+        print("T_FFT: 本次测量时间不够长")
+        print("T_FFT: T = {0:.2f} s".format(T))
+        print("T_FFT: MeasureDurationNext = {}".format(MeasureDurationNext))
+
+    return T, MeasureDurationNext

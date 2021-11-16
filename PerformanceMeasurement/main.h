@@ -1,8 +1,8 @@
 /*******************************************************************************
-Copyright(C), 2020-2020, 瑞雪轻飏
+Copyright(C), 2020-2021, 瑞雪轻飏
      FileName: main.h
        Author: 瑞雪轻飏
-      Version: 0.01
+      Version: 0.1
 Creation Date: 20200506
   Description: 1. 包含各种头文件
                2. 定义 配置信息类(CONFIG) 以及 测量数据类(PERF_DATA)
@@ -213,8 +213,9 @@ void CONFIG::init(){
 
     DeviceID = 1;
 
-    SampleInterval = 20.0;
-    PowerThreshold = 1.65;
+    SampleInterval = 100.0;
+    // PowerThreshold = 1.65;
+    PowerThreshold = 32;
     // MeasureDuration = -1.0;
     PostInterval = 0.0;
 }
