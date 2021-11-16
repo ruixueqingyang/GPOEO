@@ -14,9 +14,8 @@ Creation Date: 20210315
 PyObject* EPOptInstance;
 std::string vecRunMode[4] = {"WORK", "LEARN", "LEARN_WORK", "MEASURE"};
 
-// inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="LEARN", inMeasureOutDir="NONE", inQTableDir="/home/wfr/work/Energy/EPOpt/QTable", inTestPrefix=""
 
-std::string qtable_dir = "/home/wfr/work/Energy/EPOpt/QTable";
+std::string model_dir = "./";
 std::string test_prefix = "lammps";
 std::string run_mode = "WORK";
 std::string measure_out_dir = "NONE";
@@ -48,7 +47,7 @@ int ParseOptions(int& argc, char** argv){
         {"h", no_argument, NULL, 'h'},
         {"help", no_argument, NULL, 'h'},
 
-        {"qtable_dir", required_argument, NULL, 'q'},
+        {"model_dir", required_argument, NULL, 'q'},
         {"measure_out_dir", required_argument, NULL, 's'},
         {"test_prefix", required_argument, NULL, 't'},
 
@@ -76,7 +75,7 @@ int ParseOptions(int& argc, char** argv){
             case 'q':
             {
                 if(qSet!=0){
-                    std::cerr << "WARNING: --qtable_dir is set multiple times, the first value is used" << std::endl;
+                    std::cerr << "WARNING: --model_dir is set multiple times, the first value is used" << std::endl;
                     indexArg+=2;
                     break;
                 }
@@ -84,7 +83,7 @@ int ParseOptions(int& argc, char** argv){
                 vecIndex.emplace_back(indexArg);
                 vecIndex.emplace_back(indexArg+1);
                 indexArg+=2;
-                qtable_dir = optarg;
+                model_dir = optarg;
                 break;
             }
             case 's':
@@ -253,27 +252,20 @@ int EPOptBegin(int& argc, char** argv){
     // PyRun_SimpleString("print('Hello World form Python~')\n");
     PyRun_SimpleString("import sys");
     PyRun_SimpleString("import importlib.util, importlib.machinery");
-    PyRun_SimpleString("loader = importlib.machinery.SourceFileLoader('PyEPOpt', '/home/wfr/work/Energy/EPOpt/PyEPOpt.py')");
+    PyRun_SimpleString("loader = importlib.machinery.SourceFileLoader('PyEPOpt', './PyEPOpt.py')");
     PyRun_SimpleString("spec = importlib.util.spec_from_loader(loader.name, loader)");
     PyRun_SimpleString("PyEPOpt = importlib.util.module_from_spec(spec)");
     PyRun_SimpleString("spec.loader.exec_module(PyEPOpt)");
-    // std::cout << "EPOptBegin: 0" << std::endl;
-	// PyRun_SimpleString("sys.path.append('/home/wfr/work/Energy/EPOpt/Python3.9')");
-    // PyRun_SimpleString("print(sys.path)");
+
     PyObject * pModule = NULL;
-    // PyObject * pFunc = NULL;
     pModule = PyImport_ImportModule("PyEPOpt");
-    // std::cout << "EPOptBegin: 1" << std::endl;
     PyObject* pDict = PyModule_GetDict(pModule);
-    // std::cout << "EPOptBegin: 2" << std::endl;
     PyObject* EPOptClass = PyDict_GetItemString(pDict,"EP_OPT");
-    // std::cout << "EPOptBegin: 3" << std::endl;
     PyObject* EPOptConstruct = PyInstanceMethod_New(EPOptClass);
-    // std::cout << "EPOptBegin: 4" << std::endl;
     EPOptInstance = PyObject_CallObject(EPOptConstruct, nullptr);
     std::cout << "EPOptBegin: call PyEPOpt" << std::endl;
     // 可以直接调用 类的方法, 也可以先获得 类的方法为 PyObject 再调用
-    PyObject_CallMethod(EPOptInstance, "Begin", "iissss", GPUIDCUDADrv, GPUIDNVML, run_mode.c_str(), measure_out_dir.c_str(), qtable_dir.c_str(), test_prefix.c_str());
+    PyObject_CallMethod(EPOptInstance, "Begin", "iissss", GPUIDCUDADrv, GPUIDNVML, run_mode.c_str(), measure_out_dir.c_str(), model_dir.c_str(), test_prefix.c_str());
 
     return 0;
 }

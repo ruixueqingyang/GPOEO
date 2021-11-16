@@ -115,8 +115,7 @@ def SetMetric(isMeasure, GPUName):
     # # print("tmpDir = {}".format(tmpDir))
     # MetricDir = os.path.abspath(tmpDir)
 
-    MetricDir = "/home/wfr/work/Energy/EPOpt"
-    # MetricNameFileDir = "/home/wfr/work/Energy/EPOpt/Src"
+    MetricDir = "./"
     if isMeasure == True:
         MetricNameFileDir = os.path.join(MetricDir, "Metric.conf")
     else:
@@ -158,70 +157,6 @@ def SetMetric(isMeasure, GPUName):
     listMetricIPS.append("sm__inst_executed.sum.per_second")
     listMetricIPS.append("sm__cycles_active.avg")
     listMetricIPS.append("sm__cycles_elapsed.avg")
-    # listMetricIPS.append("sm__inst_executed_pipe_cbu.sum.per_second")
-    # listMetricIPS.append("sm__inst_executed_pipe_cbu_pred_off_all.sum.per_second")
-    # listMetricIPS.append("sm__inst_executed_pipe_cbu_pred_on_any.sum.per_second")
-    # listMetricIPS.append("sm__inst_executed_pipe_alu.sum.per_second")
-    # listMetricIPS.append("sm__inst_executed_pipe_lsu.sum.per_second")
-    # listMetricIPS.append("sm__thread_inst_executed_pred_on_realtime.sum")
-    # listMetricIPS.append("sm__thread_inst_executed_pred_on_realtime.sum.per_second")
-    # listMetricIPS.append("smsp__thread_inst_executed_pred_on.sum")
-    # listMetricIPS.append("smsp__thread_inst_executed_pred_on.sum.per_second")
-
-    
-    
-
-    # listMetricName = []
-
-    # # wfr 20201030 初步确定的特征, 可以在一次运行中全都收集
-    # listMetricName.append("sm__inst_executed.sum") # 指令数
-    # listMetricName.append("sm__inst_executed.sum.pct_of_peak_sustained_active") # IPC 达到上限的百分比 已平均
-    # listMetricName.append("sm__inst_executed.sum.per_second") # 每秒平均指令数 已平均
-    # # listMetricName.append("lts__t_request_hit_rate.pct") # L2Cache 请求命中率 已平均
-    # # listMetricName.append("lts__t_requests.sum") # L2Cache 请求数 需平均
-    # listMetricName.append("sm__cycles_active.avg") # 需平均
-    # listMetricName.append("gpu__cycles_active.avg") # 需平均
-
-    # listMetricName.append("l1tex__t_sector_hit_rate.pct")
-    # listMetricName.append("l1tex__t_sectors_lookup_miss.sum")
-    # listMetricName.append("lts__t_sector_hit_rate.pct")
-    # listMetricName.append("lts__t_sectors_lookup_miss.sum")
-
-    # listMetricName.append("sm__inst_executed_pipe_tensor.sum")
-    # listMetricName.append("sm__inst_executed_pipe_tensor.sum.pct_of_peak_sustained_active")
-
-
-    # listMetricName.append("sm__inst_executed_pipe_adu.sum")
-    # listMetricName.append("sm__inst_executed_pipe_adu.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_fma.sum")
-    # listMetricName.append("sm__inst_executed_pipe_fma.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_alu.sum")
-    # listMetricName.append("sm__inst_executed_pipe_alu.sum.pct_of_peak_sustained_active")
-
-
-    # listMetricName.append("sm__inst_executed_pipe_fp16.sum")
-    # listMetricName.append("sm__inst_executed_pipe_fp16.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_fp64.sum")
-    # listMetricName.append("sm__inst_executed_pipe_fp64.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_xu.sum")
-    # listMetricName.append("sm__inst_executed_pipe_xu.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_tex.sum")
-    # listMetricName.append("sm__inst_executed_pipe_tex.sum.pct_of_peak_sustained_active")
-
-
-    # listMetricName.append("sm__inst_executed_pipe_cbu.sum")
-    # listMetricName.append("sm__inst_executed_pipe_cbu.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_ipa.sum")
-    # listMetricName.append("sm__inst_executed_pipe_ipa.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_lsu.sum")
-    # listMetricName.append("sm__inst_executed_pipe_lsu.sum.pct_of_peak_sustained_active")
-    # listMetricName.append("sm__inst_executed_pipe_uniform.sum")
-    # listMetricName.append("sm__inst_executed_pipe_uniform.sum.pct_of_peak_sustained_active")
-
-    # wfr 20201021 为了测量不同计算指令出现的频次并排序
-
-    ## listMetricName.append("sm__inst_executed.sum.per_cycle_active") # IPC 已平均
-
     # return listMetricName
     # print("listMetricGroup:")
     # print(listMetricGroup)

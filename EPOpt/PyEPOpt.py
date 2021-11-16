@@ -212,8 +212,7 @@ class EP_OPT(multiprocessing.Process):
         # self.MEASURE_BEGIN_SIGNAL = {"SIMPLE": int(0), "FULL": int(1)}
         self.MeasureMode = 1
         self.MeasureOutDir = "NONE"
-        # self.QTableDir = "/home/wfr/work/Energy/EPOpt/QTable"
-        self.QTableDir = "/home/wfr/work/Energy/EPOpt/DataAnalysis"
+        self.ModelDir = ""
         self.TestPrefix = ""
 
         self.arrayCompositeTrace = np.array([0, 0])
@@ -969,7 +968,7 @@ class EP_OPT(multiprocessing.Process):
         else:
             self.Threshold = -1.0
 
-        EPOptXGB.Init(self.QTableDir, self.GPUName)
+        EPOptXGB.Init(self.ModelDir, self.GPUName)
 
         self.CurrentGear.value = self.NumGears
 
@@ -1780,7 +1779,7 @@ class EP_OPT(multiprocessing.Process):
         del self.MyManager
         print("Manager Process: End")
 
-    def Begin(self, inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="LEARN", inMeasureOutDir="NONE", inQTableDir="/home/wfr/work/Energy/EPOpt/QTable", inTestPrefix=""):
+    def Begin(self, inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="LEARN", inMeasureOutDir="NONE", inModelDir="", inTestPrefix=""):
 
         # RunMode = "WORk" / "LEARN" / "MEASURE"
         # 这里需要锁
@@ -1805,7 +1804,7 @@ class EP_OPT(multiprocessing.Process):
         self.DeviceIDCUDADrv = inDeviceIDCUDADrv
         self.DeviceIDNVML = inDeviceIDNVML
         self.MeasureOutDir = inMeasureOutDir
-        self.QTableDir = inQTableDir
+        self.ModelDir = inModelDir
         self.TestPrefix = inTestPrefix
 
         # 确定运行模式和测量模式

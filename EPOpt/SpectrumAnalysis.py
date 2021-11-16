@@ -347,28 +347,6 @@ def DistributionMAPE(T, arraySample, arrayTimeStamp, algorithm = "mean", TInit =
         else:
             arrayGroupIndex = GrpClustering(arrayP0, GrpFactor)
 
-        # global GrpFigCount
-        #
-        # fig = plt.figure(figsize=(8, 4))  # 定义一个图像窗口
-        # ax = fig.add_subplot(111)
-        # ax.plot(arrayP0)
-        # for v in arrayGroupIndex:
-        #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-0.png")
-        # # plt.show()
-        # plt.close()
-        #
-        # fig = plt.figure(figsize=(8, 4))  # 定义一个图像窗口
-        # ax = fig.add_subplot(111)
-        # ax.plot(arrayP1)
-        # for v in arrayGroupIndex:
-        #     ax.axvline(x=v, color="black", linestyle="--", linewidth=0.5)  # 横座标 v 画一条横线
-        # plt.savefig("/home/wfr/work/Energy/EPOpt/Trace/Grp-" + str(GrpFigCount) + "-1.png")
-        # # plt.show()
-        # plt.close(fig)
-        #
-        # GrpFigCount += 1
-
         # 先取出对应的分组后的数组
         NumGroup = len(arrayGroupIndex)-1
         arrayGrouped0 = np.zeros( NumGroup )
@@ -490,8 +468,7 @@ def TCompute(arraySample, SampleInterval, TUpBound, isPlot = False, lastT=0.0, p
 
         global FigCount
         import os
-        WorkDir = "D:\cloud\cloud\study\Coding\Energy\EPOpt\\tmp"
-        # WorkDir = "/home/wfr/work/Energy/EPOpt/tmp"
+        WorkDir = "./"
         FigFile = os.path.join(WorkDir, "TCompute" + str(FigCount) + ".png")
         plt.savefig(FigFile)
         FigCount += 1
@@ -748,7 +725,7 @@ def T_SpectrumAnalysis(listSample, SampleInterval, TUpBound, MeasureTFactor, Tra
 
     # 保存原始数据到文件
     if len(TraceFileName) > 0:
-        FileDir = "/home/wfr/work/Energy/Data-RTX3080Ti/Trace/"+TraceFileName+".pkl"
+        FileDir = "./"+TraceFileName+".pkl"
         pickle.dump(listSample, open(FileDir, "wb"))
 
 
@@ -1010,7 +987,7 @@ def T_FFT(listSample, SampleInterval, TUpBound, MeasureTFactor, TraceFileName, i
     
     # 保存原始数据到文件
     if len(TraceFileName) > 0:
-        FileDir = "/home/wfr/work/Energy/Data-RTX3080Ti/Trace/"+TraceFileName+".pkl"
+        FileDir = "./"+TraceFileName+".pkl"
         pickle.dump(listSample, open(FileDir, "wb"))
 
     T = TComputeFFT(arraySample, SampleInterval, TUpBound, isPlot)

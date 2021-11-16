@@ -1,33 +1,23 @@
 # -*- coding: utf-8 -*-
 # wfr 20210907 实现 ODPP (Indicator-Directed Dynamic Power Management for Iterative Workloads on GPU-Accelerated Systems)
-import numpy as np                # 导入模块 numpy，并简写成 np
-import matplotlib.pyplot as plt   # 导入模块 matplotlib.pyplot，并简写成 plt 
+import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
 import os
 import threading
-# import seaborn as sns
 import pickle
 import time
 import multiprocessing
-# import torch.multiprocessing as multiprocessing
 from multiprocessing import Process, Lock, Manager, Value
 import sys
 from collections import deque
-from itertools import chain
-import threading
-
-
-# lsc writes here~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-isMeasureOverhead = True # set False if want to measure overhead
-
 
 import sys
-import os
 tmpDir = os.path.abspath(__file__)
 tmpDir = os.path.split(tmpDir)[0]
-print("tmpDir = {}".format(tmpDir))
+# print("tmpDir = {}".format(tmpDir))
 tmpDir = os.path.abspath(tmpDir)
-print("tmpDir = {}".format(tmpDir))
+# print("tmpDir = {}".format(tmpDir))
 sys.path.append(tmpDir)
 sys.stdout.flush
 
@@ -378,7 +368,7 @@ def MeasureUntilUnstable(MeasureDurationInit, TUpBound, SampleInterval, PowerThr
         sys.stdout.flush()
     return
 
-def ODPP(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="MLP", inMeasureOutDir="NONE", inModelDir="/home/wfr/work/Energy/ODPP", inTestPrefix=""):
+def ODPP(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="MLP", inMeasureOutDir="NONE", inModelDir="", inTestPrefix=""):
     global QueueGlobal, isRun
     print("run: ODPP Process")
 
@@ -459,7 +449,7 @@ def ODPP(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="MLP", inMeasureOutDir="NO
     GPUName = GPUName.replace("NVIDIA","").replace("GeForce","").replace(" ","")
     print("GPUName: {}".format(GPUName))
     if GPUName == "RTX3080Ti":
-        PowerThreshold = 32.0
+        PowerThreshold = 30.0
     elif GPUName == "RTX2080Ti":
         PowerThreshold = 1.65
     else:
@@ -645,7 +635,7 @@ def ODPP(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="MLP", inMeasureOutDir="NO
     print("ODPP: End")
     sys.stdout.flush()
 
-def ODPPBegin(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="ODPP", inMeasureOutDir="NONE", inModelDir="/home/wfr/work/Energy/ODPP", inTestPrefix=""):
+def ODPPBegin(inDeviceIDCUDADrv, inDeviceIDNVML, inRunMode="ODPP", inMeasureOutDir="NONE", inModelDir="", inTestPrefix=""):
     global isRun
     # wfr 20210907 初始化
     if isRun == True:
