@@ -220,8 +220,8 @@ class EP_OPT(multiprocessing.Process):
         self.arraySMUtilTrace = np.array([0, 0])
         self.arrayMemUtilTrace = np.array([0, 0])
         self.Obj = "Energy" # "ED2P"
-        self.PerfLoss = 0.045 # require performace loss within 10%
-        self.EngSave = 0.040 # require energy saving over 10%
+        self.PerfLoss = 0.045 # require performace loss within 5%
+        self.EngSave = 0.05 # require energy saving over 5%
         self.Threshold = -1.0
 
         self.NumGears = self.SMClkGearCount
