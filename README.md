@@ -25,10 +25,15 @@ Begin(GPUID4CUDA, GPUID4NVML, RunMode, MeasureOutDir, ModelDir, TestPrefix)
 End()
 ```
 GPUID4CUDA: GPU ID used in CUDA environment.
+
 GPUID4NVML: GPU ID queried with nvidia-smi and used to initialize CUPTI.
+
 RunMode: "WORK" (run energy saving online); "MEASURE" (measure hardware performance counter metrics and other data for training multi-objective prediction models).
+
 MeasureOutDir: measurement output file path.
+
 ModelDir: the path of multi-objective prediction models.
+
 TestPrefix: prefix name of one run.
 
 The two APIs should be inserted at the beginning and end of the main python file respectively.
@@ -51,10 +56,15 @@ ODPPBegin(GPUID4CUDA, GPUID4NVML, RunMode, MeasureOutDir, ModelDir, TestPrefix)
 ODPPEnd()
 ```
 GPUID4CUDA: GPU ID used in CUDA environment.
+
 GPUID4NVML: GPU ID queried with nvidia-smi and used to initialize CUPTI.
+
 RunMode: "ODPP" (run ODPP online).
+
 MeasureOutDir: not used.
+
 ModelDir: the path of ODPP models.
+
 TestPrefix: prefix name of one run.
 
 The two APIs should be inserted at the beginning and end of the main python file respectively.
