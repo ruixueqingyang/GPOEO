@@ -79,3 +79,24 @@ if __name__=="__main__":
 
     ODPPEnd()
 ```
+
+## Citation
+If you use GPOEO in your research, please cite us as follows:
+
+   Wang F, Zhang W, Lai S, et al. Dynamic GPU energy optimization for machine learning training workloads[J]. IEEE Transactions on Parallel and Distributed Systems, 2021, 33(11): 2943-2954.
+   https://github.com/ruixueqingyang/GPOEO
+
+BibTex:
+
+```
+@article{GPOEO,
+  title={Dynamic GPU energy optimization for machine learning training workloads},
+  author={Wang, Farui and Zhang, Weizhe and Lai, Shichao and Hao, Meng and Wang, Zheng},
+  journal={IEEE Transactions on Parallel and Distributed Systems},
+  volume={33},
+  number={11},
+  pages={2943--2954},
+  year={2021},
+  publisher={IEEE}
+}
+```
